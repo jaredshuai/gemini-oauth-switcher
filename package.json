@@ -1,0 +1,96 @@
+{
+  "name": "gemini-oauth-switcher",
+  "version": "0.1.0",
+  "description": "Lightweight Windows GUI for switching Gemini CLI OAuth profiles.",
+  "main": "dist-electron/main/main.js",
+  "private": true,
+  "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "concurrently -k \"tsc -p tsconfig.electron.json --watch --preserveWatchOutput\" \"vite --host 127.0.0.1\" \"wait-on dist-electron/main/main.js dist-electron/preload/preload.js http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "build": "pnpm typecheck && tsc -p tsconfig.electron.json && vite build",
+    "pack:win": "pnpm build && electron-builder --win --dir",
+    "dist:win": "pnpm build && electron-builder --win",
+    "dist:win:portable": "pnpm build && electron-builder --win portable",
+    "dist:win:installer": "pnpm build && electron-builder --win nsis",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "lucide-react": "^1.14.0",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.0",
+    "autoprefixer": "^10.4.22",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^39.2.4",
+    "electron-builder": "^26.8.1",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.18",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.4",
+    "vitest": "^4.0.13",
+    "wait-on": "^9.0.3"
+  },
+  "build": {
+    "appId": "local.gemini-oauth-switcher",
+    "productName": "Gemini OAuth Switcher",
+    "asar": true,
+    "npmRebuild": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "assets",
+        "to": "assets",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "icon": "assets/app-icon.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable-${arch}.${ext}"
+    },
+    "nsis": {
+      "artifactName": "${productName}-${version}-setup-${arch}.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Gemini OAuth Switcher",
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

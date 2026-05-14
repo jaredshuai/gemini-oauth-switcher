@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-electron/
+release/
+out/
+build/
+coverage/
+.vite/
+
+# Local agent/tool state
+.ace-tool/
+.agents/
+.baoyu-skills/
+.playwright-mcp/
+.tmp/
+tmp/
+output/
+
+# Runtime and logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tmp
+*.temp
+
+# Environment and local config
+.env
+.env.*
+!.env.example
+*.local
+
+# Sensitive Gemini OAuth credentials
+**/oauth_creds.json
+**/.gemini/oauth_creds.json
+**/.gemini-homes/
+**/.pending-login-*/
+
+# Generated visual exploration artifacts
+current-panel-layout-variants.png
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
