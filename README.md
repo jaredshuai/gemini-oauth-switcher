@@ -59,6 +59,12 @@ pnpm dist:win:installer
 - 安装包为按用户安装，不需要管理员权限；卸载时不会删除用户配置和账号目录。
 - 当前不做代码签名；第一次运行时 Windows SmartScreen 可能会提示未知发布者。
 
+GitHub Actions：
+
+- 推送到 `main`、提交 PR，或手动运行 `Build Windows App` workflow 时，会在 Windows runner 上执行测试并打包。
+- workflow 会上传 Windows x64 安装包和 portable exe 到 Actions artifacts。
+- 推送 `v*.*.*` 格式的 tag（例如 `v0.1.0`）时，会自动创建 GitHub Release，并附带安装包和 portable exe。
+
 ## 第一版功能
 
 - 保存 `profilesRoot`
