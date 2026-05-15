@@ -41,7 +41,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -68,7 +67,7 @@ jobs:
         with:
           name: gemini-oauth-switcher-windows-x64
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 1
           path: |
             release/Gemini-OAuth-Switcher-*-setup-x64.exe
             release/Gemini-OAuth-Switcher-*-setup-x64.exe.blockmap
