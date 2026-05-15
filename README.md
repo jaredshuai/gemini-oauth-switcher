@@ -62,8 +62,9 @@ pnpm dist:win:installer
 GitHub Actions：
 
 - 推送到 `main`、提交 PR，或手动运行 `Build Windows App` workflow 时，会在 Windows runner 上执行测试并打包。
-- workflow 会上传 Windows x64 安装包和 portable exe 到 Actions artifacts。
-- 推送 `v*.*.*` 格式的 tag（例如 `v0.1.0`）时，会自动创建 GitHub Release，并附带安装包和 portable exe。
+- workflow 会上传 Windows x64 安装包、portable exe，以及自动更新所需的 `latest.yml` / blockmap 到 Actions artifacts。
+- 推送 `v*.*.*` 格式的 tag（例如 `v0.1.0`）时，会自动创建 GitHub Release，并附带安装包、portable exe 和自动更新元数据。
+- 安装版启动后默认检查 GitHub Releases 更新；可以在设置页关闭自动更新。portable 版不参与自动更新。
 
 ## 第一版功能
 

@@ -4,7 +4,8 @@ import type { AppSettings, LastSwitchResult, TrayBehavior, WindowBounds } from "
 import { getDefaultProfilesRoot } from "./paths";
 
 const DEFAULT_SETTINGS: AppSettings = {
-  profilesRoot: getDefaultProfilesRoot()
+  profilesRoot: getDefaultProfilesRoot(),
+  autoUpdateEnabled: true
 };
 const saveQueues = new Map<string, Promise<AppSettings>>();
 
@@ -60,7 +61,8 @@ function sanitizeSettings(value: unknown): AppSettings {
       : undefined;
 
   const settings: AppSettings = {
-    profilesRoot
+    profilesRoot,
+    autoUpdateEnabled: input.autoUpdateEnabled !== false
   };
 
   settings.trayBehavior = sanitizeTrayBehavior(input.trayBehavior);

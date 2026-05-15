@@ -34,6 +34,7 @@ export function App() {
   const [settings, setSettings] = useState<AppSettings>({ profilesRoot: "" });
   const [profilesRootDraft, setProfilesRootDraft] = useState("");
   const [trayBehaviorDraft, setTrayBehaviorDraft] = useState<TrayBehavior>("exit");
+  const [autoUpdateEnabledDraft, setAutoUpdateEnabledDraft] = useState(true);
   const [result, setResult] = useState<ProfileListResult>(emptyResult);
   const [status, setStatus] = useState<StatusMessage>({
     tone: "idle",
@@ -49,6 +50,7 @@ export function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingTrayBehavior, setIsSavingTrayBehavior] = useState(false);
+  const [isSavingAutoUpdate, setIsSavingAutoUpdate] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState<StatusMessage | undefined>();
   const [nicknameEditorProfile, setNicknameEditorProfile] = useState<ProfileInfo | undefined>();
   const [nicknameDraft, setNicknameDraft] = useState("");
@@ -130,6 +132,7 @@ export function App() {
         setLocalDiagnostics(diagnostics);
         setProfilesRootDraft(nextSettings.profilesRoot);
         setTrayBehaviorDraft(nextSettings.trayBehavior ?? "exit");
+        setAutoUpdateEnabledDraft(nextSettings.autoUpdateEnabled !== false);
         await loadProfiles();
       } catch (error) {
         if (mounted) {
@@ -207,6 +210,7 @@ export function App() {
       setSettings(nextSettings);
       setProfilesRootDraft(nextSettings.profilesRoot);
       setTrayBehaviorDraft(nextSettings.trayBehavior ?? "exit");
+      setAutoUpdateEnabledDraft(nextSettings.autoUpdateEnabled !== false);
       setUsageByProfile({});
       const nextResult = await loadProfiles();
       if (nextResult) {
@@ -245,6 +249,30 @@ export function App() {
       setSettingsStatus({ tone: "error", text: message });
     } finally {
       setIsSavingTrayBehavior(false);
+    }
+  }
+
+  async function saveAutoUpdateEnabled(enabled: boolean) {
+    if (profileActionInFlightRef.current || settingsActionInFlightRef.current) {
+      setSettingsStatus({ tone: "idle", text: "账号操作完成后再修改更新设置。" });
+      return;
+    }
+
+    const previousValue = settings.autoUpdateEnabled !== false;
+    setAutoUpdateEnabledDraft(enabled);
+    setIsSavingAutoUpdate(true);
+
+    try {
+      const nextSettings = await getApi().saveSettings({ autoUpdateEnabled: enabled });
+      setSettings(nextSettings);
+      setAutoUpdateEnabledDraft(nextSettings.autoUpdateEnabled !== false);
+    } catch (error) {
+      const message = getErrorMessage(error);
+      setAutoUpdateEnabledDraft(previousValue);
+      setStatus({ tone: "error", text: message });
+      setSettingsStatus({ tone: "error", text: message });
+    } finally {
+      setIsSavingAutoUpdate(false);
     }
   }
 
@@ -633,6 +661,7 @@ export function App() {
               onClick={() => {
                 setSettingsStatus(undefined);
                 setTrayBehaviorDraft(settings.trayBehavior ?? "exit");
+                setAutoUpdateEnabledDraft(settings.autoUpdateEnabled !== false);
                 setIsSettingsOpen(true);
               }}
               title="打开设置"
@@ -696,11 +725,14 @@ export function App() {
             targetGeminiDir={result.targetGeminiDir}
             profilesRoot={settings.profilesRoot}
             trayBehavior={trayBehaviorDraft}
+            autoUpdateEnabled={autoUpdateEnabledDraft}
             isSaving={isSavingSettings}
             isSavingTrayBehavior={isSavingTrayBehavior}
+            isSavingAutoUpdate={isSavingAutoUpdate}
             status={settingsStatus}
             onProfilesRootChange={setProfilesRootDraft}
             onTrayBehaviorChange={saveTrayBehavior}
+            onAutoUpdateEnabledChange={saveAutoUpdateEnabled}
             onSelectProfilesRoot={selectProfilesRoot}
             onSave={saveProfilesRoot}
             onReveal={reveal}
@@ -1094,11 +1126,14 @@ function SettingsDialog({
   targetGeminiDir,
   profilesRoot,
   trayBehavior,
+  autoUpdateEnabled,
   isSaving,
   isSavingTrayBehavior,
+  isSavingAutoUpdate,
   status,
   onProfilesRootChange,
   onTrayBehaviorChange,
+  onAutoUpdateEnabledChange,
   onSelectProfilesRoot,
   onSave,
   onReveal,
@@ -1109,11 +1144,14 @@ function SettingsDialog({
   targetGeminiDir: string;
   profilesRoot: string;
   trayBehavior: TrayBehavior;
+  autoUpdateEnabled: boolean;
   isSaving: boolean;
   isSavingTrayBehavior: boolean;
+  isSavingAutoUpdate: boolean;
   status?: StatusMessage;
   onProfilesRootChange: (value: string) => void;
   onTrayBehaviorChange: (value: TrayBehavior) => void | Promise<void>;
+  onAutoUpdateEnabledChange: (enabled: boolean) => void | Promise<void>;
   onSelectProfilesRoot: () => void;
   onSave: () => void;
   onReveal: (target: RevealTarget) => void;
@@ -1179,6 +1217,30 @@ function SettingsDialog({
                 disabled={isSaving || isSavingTrayBehavior}
               >
                 隐藏到托盘
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <div className="text-sm font-semibold text-neutral-800">自动更新</div>
+            <div className="mt-2 inline-flex overflow-hidden rounded-md border border-neutral-300 bg-white/70 p-1">
+              <button
+                className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
+                  autoUpdateEnabled ? "bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
+                }`}
+                onClick={() => void onAutoUpdateEnabledChange(true)}
+                disabled={isSaving || isSavingAutoUpdate}
+              >
+                开启
+              </button>
+              <button
+                className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
+                  !autoUpdateEnabled ? "bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
+                }`}
+                onClick={() => void onAutoUpdateEnabledChange(false)}
+                disabled={isSaving || isSavingAutoUpdate}
+              >
+                关闭
               </button>
             </div>
           </div>

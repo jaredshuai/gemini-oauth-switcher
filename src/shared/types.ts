@@ -12,6 +12,7 @@ export interface AppSettings {
   profilesRoot: string;
   windowBounds?: WindowBounds;
   trayBehavior?: TrayBehavior;
+  autoUpdateEnabled?: boolean;
   lastSelectedProfile?: string;
   lastSwitch?: LastSwitchResult;
   profileNicknames?: Record<string, string>;

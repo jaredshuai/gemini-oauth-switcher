@@ -4,6 +4,10 @@
   "description": "Lightweight Windows GUI for switching Gemini CLI OAuth profiles.",
   "main": "dist-electron/main/main.js",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jaredshuai/gemini-oauth-switcher.git"
+  },
   "packageManager": "pnpm@10.33.2",
   "engines": {
     "node": ">=20.19.0"
@@ -19,6 +23,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "electron-updater": "^6.8.3",
     "lucide-react": "^1.14.0",
     "react": "^19.2.1",
     "react-dom": "^19.2.1"
@@ -48,6 +53,15 @@
     "directories": {
       "output": "release"
     },
+    "electronUpdaterCompatibility": ">=2.16",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "jaredshuai",
+        "repo": "gemini-oauth-switcher",
+        "releaseType": "release"
+      }
+    ],
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
@@ -80,10 +94,10 @@
       ]
     },
     "portable": {
-      "artifactName": "${productName}-${version}-portable-${arch}.${ext}"
+      "artifactName": "Gemini-OAuth-Switcher-${version}-portable-${arch}.${ext}"
     },
     "nsis": {
-      "artifactName": "${productName}-${version}-setup-${arch}.${ext}",
+      "artifactName": "Gemini-OAuth-Switcher-${version}-setup-${arch}.${ext}",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,

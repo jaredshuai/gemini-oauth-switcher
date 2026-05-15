@@ -13,6 +13,7 @@ import {
 import { deleteProfile, getProfileOAuthPath, listProfiles, switchProfile, validateProfileName } from "./profileService";
 import { readSettings, saveSettings } from "./settings";
 import { collectLocalDiagnostics } from "./systemDiagnostics";
+import { startAutoUpdateChecks } from "./updateService";
 import { queryGeminiUsageFromOAuthFile } from "./usageService";
 import { persistWindowBoundsBeforeClose, shouldHideWindowOnClose } from "./windowLifecycle";
 
@@ -188,6 +189,20 @@ function logStaleLoginCleanupResult(result: { failed: string[]; skipped: string[
   }
 }
 
+function startAutoUpdatesIfEnabled(settings: AppSettings): void {
+  void startAutoUpdateChecks({
+    settings,
+    isPackaged: app.isPackaged,
+    isPortable: Boolean(process.env.PORTABLE_EXECUTABLE_DIR),
+    showMessageBox: (options) => (mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options)),
+    logWarning: (message, error) => {
+      console.warn(message, error);
+    }
+  }).catch((error: unknown) => {
+    console.warn("Failed to initialize auto updates.", error);
+  });
+}
+
 async function createWindow(): Promise<void> {
   const settings = await readSettings(settingsPath());
   const bounds = settings.windowBounds ?? { width: 1040, height: 760 };
@@ -252,6 +267,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle("settings:save", async (_event, patch: Partial<AppSettings>) => {
     const nextSettings = await saveSettings(settingsPath(), patch);
     trayBehavior = nextSettings.trayBehavior ?? "exit";
+    startAutoUpdatesIfEnabled(nextSettings);
     return nextSettings;
   });
 
@@ -458,6 +474,7 @@ app.whenReady().then(async () => {
       console.warn("Failed to run stale OAuth login cleanup.", error);
     });
   await createWindow();
+  startAutoUpdatesIfEnabled(settings);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

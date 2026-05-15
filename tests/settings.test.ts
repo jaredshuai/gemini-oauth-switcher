@@ -70,6 +70,31 @@ describe("settings defaults", () => {
     });
   });
 
+  it("stores auto update preference and defaults to enabled", async () => {
+    const root = await makeTempRoot();
+    const settingsPath = path.join(root, "settings.json");
+
+    await expect(readSettings(settingsPath)).resolves.toMatchObject({
+      autoUpdateEnabled: true
+    });
+
+    await saveSettings(settingsPath, {
+      autoUpdateEnabled: false
+    });
+
+    await expect(readSettings(settingsPath)).resolves.toMatchObject({
+      autoUpdateEnabled: false
+    });
+
+    await saveSettings(settingsPath, {
+      autoUpdateEnabled: "unknown"
+    } as unknown as Partial<AppSettings> & Record<string, unknown>);
+
+    await expect(readSettings(settingsPath)).resolves.toMatchObject({
+      autoUpdateEnabled: true
+    });
+  });
+
   it("serializes concurrent settings saves so patches are merged", async () => {
     const root = await makeTempRoot();
     const settingsPath = path.join(root, "settings.json");

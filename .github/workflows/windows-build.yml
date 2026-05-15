@@ -70,8 +70,10 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           path: |
-            release/Gemini OAuth Switcher-*-setup-x64.exe
-            release/Gemini OAuth Switcher-*-portable-x64.exe
+            release/Gemini-OAuth-Switcher-*-setup-x64.exe
+            release/Gemini-OAuth-Switcher-*-setup-x64.exe.blockmap
+            release/Gemini-OAuth-Switcher-*-portable-x64.exe
+            release/latest.yml
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -79,5 +81,7 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            release/Gemini OAuth Switcher-*-setup-x64.exe
-            release/Gemini OAuth Switcher-*-portable-x64.exe
+            release/Gemini-OAuth-Switcher-*-setup-x64.exe
+            release/Gemini-OAuth-Switcher-*-setup-x64.exe.blockmap
+            release/Gemini-OAuth-Switcher-*-portable-x64.exe
+            release/latest.yml
