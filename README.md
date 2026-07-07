@@ -1,6 +1,8 @@
 # Gemini OAuth Switcher
 
-Windows 本地 GUI 工具，用来在已有 profiles 之间切换当前 Gemini CLI 使用的 OAuth 账号，并支持 Antigravity CLI 的系统凭据切换。程序按需打开，不需要常驻；也不提供后台服务、数据库或账号池调度。
+Windows 本地 GUI 工具，用来在已有 profiles 之间切换当前 Gemini CLI 使用的 OAuth 账号。程序按需打开，不需要常驻；也不提供后台服务、数据库或账号池调度。
+
+> **Antigravity CLI 切换当前不可用。** 经实测验证，Antigravity CLI（`agy`）在 Windows 上不把 OAuth token 持久化到 Credential Manager 的 CredentialBlob（进程退出即清空），且其 Go keyring 库与本项目使用的 `@napi-rs/keyring`（Rust）对 blob 编码不兼容，导致凭据无法跨库读写。详见 [ADR-0001](./docs/adr/0001-antigravity-credential-switching-infeasible.md)。相关代码保留在仓库中但视为实验性、不可用；待 `agy` 的真实 token 存储被定位后再决定恢复或移除。
 
 ## 目录模型
 
@@ -59,10 +61,10 @@ pnpm dist:win:portable
 
 - 保存 `profilesRoot`
 - 扫描 profile 目录
-- 切换目标工具：Gemini CLI / Antigravity CLI
+- 切换目标工具：Gemini CLI / Antigravity CLI（**Antigravity CLI 切换当前不可用**，见上方说明）
 - 显示账号状态、更新时间、当前匹配账号
 - Gemini CLI：切换 `.gemini\oauth_creds.json`
-- Antigravity CLI：切换 Windows Credential Manager 中的 `gemini:antigravity`
+- Antigravity CLI：切换 Windows Credential Manager 中的 `gemini:antigravity`（**受阻**，见上方说明）
 - 新增登录：打开隔离 PowerShell 登录窗口，成功后保存为新的 profile
 - Gemini CLI 用量查询
 - 打开 `profilesRoot` 和目标目录
