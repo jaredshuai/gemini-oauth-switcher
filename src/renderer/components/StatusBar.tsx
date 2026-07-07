@@ -1,12 +1,15 @@
 import type { StatusMessage, StatusVisibility } from "../types";
 
+function statusToneClass(tone: StatusMessage["tone"], idleClass: string): string {
+  return tone === "error"
+    ? "border-red-200 bg-red-50 text-red-800"
+    : tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      : idleClass;
+}
+
 export function StatusBar({ status, visibility }: { status: StatusMessage; visibility: StatusVisibility }) {
-  const className =
-    status.tone === "error"
-      ? "border-red-200 bg-red-50 text-red-800"
-      : status.tone === "success"
-        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-        : "border-neutral-300 bg-white/70 text-neutral-600";
+  const className = statusToneClass(status.tone, "border-neutral-300 bg-white/70 text-neutral-600");
   const visibilityClass =
     visibility === "visible"
       ? "max-h-20 py-3 opacity-100"
@@ -24,12 +27,7 @@ export function StatusBar({ status, visibility }: { status: StatusMessage; visib
 }
 
 export function SettingsStatusBar({ status }: { status: StatusMessage }) {
-  const className =
-    status.tone === "error"
-      ? "border-red-200 bg-red-50 text-red-800"
-      : status.tone === "success"
-        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-        : "border-neutral-300 bg-white/70 text-neutral-700";
+  const className = statusToneClass(status.tone, "border-neutral-300 bg-white/70 text-neutral-700");
 
   return <div className={`mt-3 rounded-md border px-3 py-2 text-sm ${className}`}>{status.text}</div>;
 }
