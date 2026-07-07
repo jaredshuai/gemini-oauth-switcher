@@ -62,12 +62,13 @@ export function OAuthLoginDialog({
       className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/35 px-4 py-5"
       role="dialog"
       aria-modal="true"
+      aria-labelledby="oauth-login-dialog-title"
       onMouseDown={onBackdropClick}
     >
       <section className="flex max-h-[calc(100vh-2.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-md border border-neutral-300 bg-[#f7f3ea] shadow-xl">
         <div className="flex items-center justify-between gap-3 border-b border-neutral-300 px-5 py-4">
           <div>
-            <h2 className="text-lg font-semibold text-neutral-950">新增 {toolLabels.shortName} 登录</h2>
+            <h2 id="oauth-login-dialog-title" className="text-lg font-semibold text-neutral-950">新增 {toolLabels.shortName} 登录</h2>
             <p className="mt-1 text-sm text-neutral-600">先隔离登录，成功后检测 {credentialLabel} 并保存为 profile。</p>
           </div>
           <button className="copy-icon-button" onClick={onClose} disabled={isBusy} aria-label="关闭登录新账号" title="关闭">

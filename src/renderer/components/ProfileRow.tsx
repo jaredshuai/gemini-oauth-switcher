@@ -3,7 +3,6 @@ import type { ProfileInfo, ProfileUsageResult, TargetTool, UsageTier } from "../
 import { TOOL_LABELS } from "../constants";
 import {
   clampPercentage,
-  copyText,
   describeUsageFailure,
   formatProfileUpdatedTime,
   formatRelativeTime,
@@ -24,6 +23,7 @@ export function ProfileRow({
   onSwitch,
   onDelete,
   onCopyName,
+  onCopyPath,
   onSetNickname,
   onRefreshUsage
 }: {
@@ -39,6 +39,7 @@ export function ProfileRow({
   onSwitch: () => void;
   onDelete: () => void;
   onCopyName: () => void;
+  onCopyPath: () => void;
   onSetNickname: () => void;
   onRefreshUsage: () => void;
 }) {
@@ -83,7 +84,7 @@ export function ProfileRow({
                 title={`复制路径：${profile.oauthPath}`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  void copyText(profile.oauthPath).catch(() => null);
+                  onCopyPath();
                 }}
               >
                 <Copy className="h-3 w-3" />

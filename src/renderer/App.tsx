@@ -372,13 +372,21 @@ export function App() {
     }
   }
 
-  async function copyProfileName(profileName: string) {
+  async function copyToClipboard(text: string, successMessage: string) {
     try {
-      await copyText(profileName);
-      setStatus({ tone: "success", text: `已复制完整 profile 名称：${profileName}` });
+      await copyText(text);
+      setStatus({ tone: "success", text: successMessage });
     } catch (error) {
       setStatus({ tone: "error", text: getErrorMessage(error) });
     }
+  }
+
+  function copyProfileName(profileName: string) {
+    return copyToClipboard(profileName, `已复制完整 profile 名称：${profileName}`);
+  }
+
+  function copyProfilePath(profile: ProfileInfo) {
+    return copyToClipboard(profile.oauthPath, `已复制路径：${profile.oauthPath}`);
   }
 
   function openProfileNicknameEditor(profile: ProfileInfo) {
@@ -749,6 +757,7 @@ export function App() {
                   onSwitch={() => switchToProfile(profile)}
                   onDelete={() => deleteProfile(profile)}
                   onCopyName={() => copyProfileName(profile.name)}
+                  onCopyPath={() => copyProfilePath(profile)}
                   onSetNickname={() => openProfileNicknameEditor(profile)}
                   onRefreshUsage={() => refreshUsage(profile.name)}
                 />

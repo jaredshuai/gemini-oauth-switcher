@@ -23,6 +23,7 @@ export function TargetToolSwitch({
           className="copy-icon-button h-4"
           onClick={() => void onChange(prevTool)}
           disabled={disabled}
+          aria-label={`切换到 ${TOOL_LABELS[prevTool].name}`}
           title={`切换到 ${TOOL_LABELS[prevTool].name}`}
         >
           <ChevronUp className="h-3 w-3" />
@@ -31,6 +32,7 @@ export function TargetToolSwitch({
           className="copy-icon-button h-4"
           onClick={() => void onChange(nextTool)}
           disabled={disabled}
+          aria-label={`切换到 ${TOOL_LABELS[nextTool].name}`}
           title={`切换到 ${TOOL_LABELS[nextTool].name}`}
         >
           <ChevronDown className="h-3 w-3" />
