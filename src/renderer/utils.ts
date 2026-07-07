@@ -1,58 +1,49 @@
 import type { ProfileInfo, ProfileUsageResult, TargetTool } from "../shared/types";
 
-export function formatRelativeTime(value: number): string {
+interface ElapsedSuffixes {
+  now: string;
+  minutes: string;
+  hours: string;
+  days: string;
+}
+
+function formatElapsed(value: number, suffixes: ElapsedSuffixes): string {
   const diffMs = Math.max(0, Date.now() - value);
   const minutes = Math.floor(diffMs / 60_000);
   if (minutes < 1) {
-    return "刚刚查询";
+    return suffixes.now;
   }
   if (minutes < 60) {
-    return `${minutes} 分钟前查询`;
+    return `${minutes} ${suffixes.minutes}`;
   }
 
   const hours = Math.floor(minutes / 60);
   if (hours < 24) {
-    return `${hours} 小时前查询`;
+    return `${hours} ${suffixes.hours}`;
   }
 
-  return `${Math.floor(hours / 24)} 天前查询`;
+  return `${Math.floor(hours / 24)} ${suffixes.days}`;
+}
+
+export function formatRelativeTime(value: number): string {
+  return formatElapsed(value, {
+    now: "刚刚查询",
+    minutes: "分钟前查询",
+    hours: "小时前查询",
+    days: "天前查询"
+  });
 }
 
 export function formatProfileUpdatedTime(value: number): string {
-  const diffMs = Math.max(0, Date.now() - value);
-  const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) {
-    return "刚刚";
-  }
-  if (minutes < 60) {
-    return `${minutes} 分钟前`;
-  }
-
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) {
-    return `${hours} 小时前`;
-  }
-
-  return `${Math.floor(hours / 24)} 天前`;
+  return formatElapsed(value, {
+    now: "刚刚",
+    minutes: "分钟前",
+    hours: "小时前",
+    days: "天前"
+  });
 }
 
-export function formatSwitchRelativeTime(value: number): string {
-  const diffMs = Math.max(0, Date.now() - value);
-  const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) {
-    return "刚刚";
-  }
-  if (minutes < 60) {
-    return `${minutes} 分钟前`;
-  }
-
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) {
-    return `${hours} 小时前`;
-  }
-
-  return `${Math.floor(hours / 24)} 天前`;
-}
+export const formatSwitchRelativeTime = formatProfileUpdatedTime;
 
 export function clampPercentage(value: number): number {
   return Math.min(100, Math.max(0, Math.round(value)));
