@@ -6,12 +6,14 @@ export interface WindowBounds {
 }
 
 export type TrayBehavior = "exit" | "minimize_to_tray";
-export type RevealTarget = "profilesRoot" | "targetGeminiDir";
+export type TargetTool = "gemini" | "antigravity-cli";
+export type RevealTarget = "profilesRoot" | "targetGeminiDir" | "targetAntigravityCliDir";
 
 export interface AppSettings {
   profilesRoot: string;
   windowBounds?: WindowBounds;
   trayBehavior?: TrayBehavior;
+  selectedTool?: TargetTool;
   autoUpdateEnabled?: boolean;
   lastSelectedProfile?: string;
   lastSwitch?: LastSwitchResult;
@@ -22,6 +24,7 @@ export interface LastSwitchResult {
   profileName: string;
   switchedAt: number;
   verified: boolean;
+  targetTool?: TargetTool;
 }
 
 export interface ProfileInfo {
@@ -86,6 +89,7 @@ export interface DeleteProfileResult {
 
 export interface OAuthLoginSession {
   sessionId: string;
+  targetTool?: TargetTool;
   pendingProfilePath: string;
   pidFilePath?: string;
   oauthPath: string;
@@ -94,6 +98,7 @@ export interface OAuthLoginSession {
 
 export interface OAuthLoginInspectResult {
   sessionId: string;
+  targetTool?: TargetTool;
   pendingProfilePath: string;
   oauthPath: string;
   oauthExists: boolean;
@@ -116,6 +121,7 @@ export interface OAuthLoginSaveRequest {
 
 export interface OAuthLoginSaveResult {
   sessionId: string;
+  targetTool?: TargetTool;
   profileName: string;
   nickname?: string;
   profilePath: string;
@@ -132,10 +138,10 @@ export interface OAuthLoginCancelRequest {
 export interface GeminiSwitcherApi {
   getSettings(): Promise<AppSettings>;
   saveSettings(settings: Partial<AppSettings>): Promise<AppSettings>;
-  listProfiles(): Promise<ProfileListResult>;
-  switchProfile(profileName: string): Promise<SwitchProfileResult>;
+  listProfiles(targetTool?: TargetTool): Promise<ProfileListResult>;
+  switchProfile(profileName: string, targetTool?: TargetTool): Promise<SwitchProfileResult>;
   deleteProfile(profileName: string): Promise<DeleteProfileResult>;
-  startOAuthLogin(): Promise<OAuthLoginSession>;
+  startOAuthLogin(targetTool?: TargetTool): Promise<OAuthLoginSession>;
   inspectOAuthLogin(sessionId: string): Promise<OAuthLoginInspectResult>;
   saveOAuthLogin(request: OAuthLoginSaveRequest): Promise<OAuthLoginSaveResult>;
   cancelOAuthLogin(request: OAuthLoginCancelRequest): Promise<void>;

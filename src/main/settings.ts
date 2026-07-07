@@ -1,10 +1,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { AppSettings, LastSwitchResult, TrayBehavior, WindowBounds } from "../shared/types";
+import type { AppSettings, LastSwitchResult, TargetTool, TrayBehavior, WindowBounds } from "../shared/types";
 import { getDefaultProfilesRoot } from "./paths";
 
 const DEFAULT_SETTINGS: AppSettings = {
   profilesRoot: getDefaultProfilesRoot(),
+  selectedTool: "gemini",
   autoUpdateEnabled: true
 };
 const saveQueues = new Map<string, Promise<AppSettings>>();
@@ -62,6 +63,7 @@ function sanitizeSettings(value: unknown): AppSettings {
 
   const settings: AppSettings = {
     profilesRoot,
+    selectedTool: sanitizeTargetTool(input.selectedTool),
     autoUpdateEnabled: input.autoUpdateEnabled !== false
   };
 
@@ -93,6 +95,10 @@ function sanitizeTrayBehavior(value: unknown): TrayBehavior {
   return value === "minimize_to_tray" ? "minimize_to_tray" : "exit";
 }
 
+function sanitizeTargetTool(value: unknown): TargetTool {
+  return value === "antigravity-cli" ? "antigravity-cli" : "gemini";
+}
+
 function sanitizeLastSwitch(value: unknown): LastSwitchResult | undefined {
   if (!value || typeof value !== "object") {
     return undefined;
@@ -109,7 +115,8 @@ function sanitizeLastSwitch(value: unknown): LastSwitchResult | undefined {
   return {
     profileName: input.profileName.trim(),
     switchedAt: Math.round(input.switchedAt),
-    verified: input.verified === true
+    verified: input.verified === true,
+    targetTool: sanitizeTargetTool(input.targetTool)
   };
 }
 

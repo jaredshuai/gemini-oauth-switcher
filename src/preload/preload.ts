@@ -1,13 +1,13 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AppSettings, GeminiSwitcherApi, OAuthLoginCancelRequest, OAuthLoginSaveRequest, RevealTarget } from "../shared/types";
+import type { AppSettings, GeminiSwitcherApi, OAuthLoginCancelRequest, OAuthLoginSaveRequest, RevealTarget, TargetTool } from "../shared/types";
 
 const api: GeminiSwitcherApi = {
   getSettings: () => ipcRenderer.invoke("settings:get"),
   saveSettings: (settings: Partial<AppSettings>) => ipcRenderer.invoke("settings:save", settings),
-  listProfiles: () => ipcRenderer.invoke("profiles:list"),
-  switchProfile: (profileName: string) => ipcRenderer.invoke("profiles:switch", profileName),
+  listProfiles: (targetTool?: TargetTool) => ipcRenderer.invoke("profiles:list", targetTool),
+  switchProfile: (profileName: string, targetTool?: TargetTool) => ipcRenderer.invoke("profiles:switch", profileName, targetTool),
   deleteProfile: (profileName: string) => ipcRenderer.invoke("profiles:delete", profileName),
-  startOAuthLogin: () => ipcRenderer.invoke("oauthLogin:start"),
+  startOAuthLogin: (targetTool?: TargetTool) => ipcRenderer.invoke("oauthLogin:start", targetTool),
   inspectOAuthLogin: (sessionId: string) => ipcRenderer.invoke("oauthLogin:inspect", sessionId),
   saveOAuthLogin: (request: OAuthLoginSaveRequest) => ipcRenderer.invoke("oauthLogin:save", request),
   cancelOAuthLogin: (request: OAuthLoginCancelRequest) => ipcRenderer.invoke("oauthLogin:cancel", request),

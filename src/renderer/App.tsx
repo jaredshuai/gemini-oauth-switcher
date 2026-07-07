@@ -1,4 +1,4 @@
-import { Activity, Clock, Copy, FolderOpen, Pencil, Plus, RefreshCw, Settings, Shuffle, Trash2, TriangleAlert, X } from "lucide-react";
+import { Activity, ChevronDown, ChevronUp, Clock, Copy, FolderOpen, Pencil, Plus, RefreshCw, Settings, Shuffle, Trash2, TriangleAlert, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import type {
   AppSettings,
@@ -10,6 +10,7 @@ import type {
   ProfileListResult,
   ProfileUsageResult,
   RevealTarget,
+  TargetTool,
   TrayBehavior,
   UsageTier
 } from "../shared/types";
@@ -23,6 +24,41 @@ interface StatusMessage {
   autoFade?: boolean;
 }
 
+const TOOL_LABELS: Record<
+  TargetTool,
+  {
+    name: string;
+    shortName: string;
+    targetLabel: string;
+    fileLabel: string;
+    missingLabel: string;
+    command: string;
+    targetPathFallback: string;
+    targetReveal: RevealTarget;
+  }
+> = {
+  gemini: {
+    name: "Gemini CLI",
+    shortName: "Gemini",
+    targetLabel: "目标 OAuth",
+    fileLabel: "OAuth",
+    missingLabel: "缺 OAuth",
+    command: "gemini",
+    targetPathFallback: "C:\\Users\\<current-user>\\.gemini\\oauth_creds.json",
+    targetReveal: "targetGeminiDir"
+  },
+  "antigravity-cli": {
+    name: "Antigravity CLI",
+    shortName: "Antigravity",
+    targetLabel: "目标凭据",
+    fileLabel: "凭据",
+    missingLabel: "缺凭据",
+    command: "agy",
+    targetPathFallback: "Windows Credential Manager: gemini:antigravity",
+    targetReveal: "targetAntigravityCliDir"
+  }
+};
+
 const emptyResult: ProfileListResult = {
   profilesRoot: "",
   targetGeminiDir: "",
@@ -35,6 +71,7 @@ export function App() {
   const [profilesRootDraft, setProfilesRootDraft] = useState("");
   const [trayBehaviorDraft, setTrayBehaviorDraft] = useState<TrayBehavior>("exit");
   const [autoUpdateEnabledDraft, setAutoUpdateEnabledDraft] = useState(true);
+  const [selectedTool, setSelectedTool] = useState<TargetTool>("gemini");
   const [result, setResult] = useState<ProfileListResult>(emptyResult);
   const [status, setStatus] = useState<StatusMessage>({
     tone: "idle",
@@ -82,13 +119,18 @@ export function App() {
   );
   const profileNicknames = settings.profileNicknames ?? {};
   const currentProfileDisplayName = currentProfile ? getProfileDisplayName(currentProfile, profileNicknames) : undefined;
+  const toolLabels = TOOL_LABELS[selectedTool];
+  const isGeminiTool = selectedTool === "gemini";
+  const loginCredentialLabel = isGeminiTool ? "OAuth 文件" : "登录凭据";
+  const visibleLastSwitch =
+    settings.lastSwitch && (settings.lastSwitch.targetTool ?? "gemini") === selectedTool ? settings.lastSwitch : undefined;
 
-  const loadProfiles = useCallback(async (): Promise<ProfileListResult | undefined> => {
+  const loadProfiles = useCallback(async (targetTool: TargetTool): Promise<ProfileListResult | undefined> => {
     const requestId = loadProfilesRequestIdRef.current + 1;
     loadProfilesRequestIdRef.current = requestId;
     setIsLoading(true);
     try {
-      const nextResult = await getApi().listProfiles();
+      const nextResult = await getApi().listProfiles(targetTool);
       if (requestId !== loadProfilesRequestIdRef.current) {
         return undefined;
       }
@@ -129,11 +171,13 @@ export function App() {
         }
 
         setSettings(nextSettings);
+        const nextSelectedTool = nextSettings.selectedTool ?? "gemini";
+        setSelectedTool(nextSelectedTool);
         setLocalDiagnostics(diagnostics);
         setProfilesRootDraft(nextSettings.profilesRoot);
         setTrayBehaviorDraft(nextSettings.trayBehavior ?? "exit");
         setAutoUpdateEnabledDraft(nextSettings.autoUpdateEnabled !== false);
-        await loadProfiles();
+        await loadProfiles(nextSelectedTool);
       } catch (error) {
         if (mounted) {
           setStatus({ tone: "error", text: getErrorMessage(error) });
@@ -206,13 +250,13 @@ export function App() {
     setIsSavingSettings(true);
     setSettingsStatus({ tone: "idle", text: "正在保存并扫描账号目录..." });
     try {
-      const nextSettings = await getApi().saveSettings({ profilesRoot, trayBehavior: trayBehaviorDraft });
+      const nextSettings = await getApi().saveSettings({ profilesRoot, trayBehavior: trayBehaviorDraft, selectedTool });
       setSettings(nextSettings);
       setProfilesRootDraft(nextSettings.profilesRoot);
       setTrayBehaviorDraft(nextSettings.trayBehavior ?? "exit");
       setAutoUpdateEnabledDraft(nextSettings.autoUpdateEnabled !== false);
       setUsageByProfile({});
-      const nextResult = await loadProfiles();
+      const nextResult = await loadProfiles(selectedTool);
       if (nextResult) {
         setSettingsStatus({ tone: "success", text: `已保存，找到 ${nextResult.profiles.length} 个账号目录。` });
       } else {
@@ -224,6 +268,34 @@ export function App() {
       setSettingsStatus({ tone: "error", text: message });
     } finally {
       setIsSavingSettings(false);
+      settingsActionInFlightRef.current = false;
+    }
+  }
+
+  async function selectTargetTool(targetTool: TargetTool) {
+    if (targetTool === selectedTool) {
+      return;
+    }
+    if (profileActionInFlightRef.current || settingsActionInFlightRef.current) {
+      setStatus({ tone: "idle", text: "账号操作完成后再切换目标工具。" });
+      return;
+    }
+
+    settingsActionInFlightRef.current = true;
+    const previousTool = selectedTool;
+    setSelectedTool(targetTool);
+    setResult(emptyResult);
+    setUsageByProfile({});
+    setStatus({ tone: "idle", text: `正在切换到 ${TOOL_LABELS[targetTool].name}...` });
+    try {
+      const nextSettings = await getApi().saveSettings({ selectedTool: targetTool });
+      setSettings(nextSettings);
+      await loadProfiles(targetTool);
+    } catch (error) {
+      setSelectedTool(previousTool);
+      setStatus({ tone: "error", text: getErrorMessage(error) });
+      await loadProfiles(previousTool);
+    } finally {
       settingsActionInFlightRef.current = false;
     }
   }
@@ -284,14 +356,14 @@ export function App() {
     profileActionInFlightRef.current = true;
     setSwitchingProfile(profile.name);
     try {
-      await getApi().switchProfile(profile.name);
+      await getApi().switchProfile(profile.name, selectedTool);
       const nextSettings = await getApi().getSettings();
       setSettings(nextSettings);
-      await loadProfiles();
+      await loadProfiles(selectedTool);
       const displayName = getProfileDisplayName(profile, nextSettings.profileNicknames ?? {});
       setStatus({
         tone: "success",
-        text: `已切换为 ${displayName}。可以关闭窗口；新开 PowerShell 后运行 gemini 会使用这个账号。`
+        text: `已切换为 ${displayName}。可以关闭窗口；新开 PowerShell 后运行 ${toolLabels.command} 会使用这个${toolLabels.fileLabel}。`
       });
     } catch (error) {
       setStatus({ tone: "error", text: getErrorMessage(error) });
@@ -302,6 +374,10 @@ export function App() {
   }
 
   async function deleteProfile(profile: ProfileInfo) {
+    if (!isGeminiTool) {
+      setStatus({ tone: "error", text: "Antigravity CLI 模式不会删除共享 profile 目录。" });
+      return;
+    }
     if (profile.isCurrent) {
       setStatus({ tone: "error", text: "不能删除当前正在使用的账号。请先切换到其他账号。" });
       return;
@@ -328,7 +404,7 @@ export function App() {
         delete next[profile.name];
         return next;
       });
-      await loadProfiles();
+      await loadProfiles(selectedTool);
       setStatus({ tone: "success", text: `已将 ${profile.name} 移到回收站。` });
     } catch (error) {
       setStatus({ tone: "error", text: getErrorMessage(error) });
@@ -393,7 +469,7 @@ export function App() {
     setOAuthNicknameDraft("");
     setOAuthLoginStatus({
       tone: "idle",
-      text: "会先创建临时登录目录，登录成功后自动识别账号。"
+      text: `会先创建临时登录目录，登录成功后检测 ${loginCredentialLabel} 并保存到账号列表。`
     });
     setIsOAuthLoginOpen(true);
   }
@@ -402,7 +478,7 @@ export function App() {
     setIsStartingOAuthLogin(true);
     setOAuthLoginStatus({ tone: "idle", text: "正在打开独立 PowerShell 登录窗口..." });
     try {
-      const session = await getApi().startOAuthLogin();
+      const session = await getApi().startOAuthLogin(selectedTool);
       setOAuthLoginSession(session);
       setOAuthLoginInspection(undefined);
       setOAuthProfileNameDraft("");
@@ -422,12 +498,12 @@ export function App() {
     }
 
     setIsInspectingOAuthLogin(true);
-    setOAuthLoginStatus({ tone: "idle", text: "正在检测 OAuth 文件..." });
+    setOAuthLoginStatus({ tone: "idle", text: `正在检测 ${loginCredentialLabel}...` });
     try {
       const inspection = await getApi().inspectOAuthLogin(oauthLoginSession.sessionId);
       setOAuthLoginInspection(inspection);
       if (!inspection.oauthExists) {
-        setOAuthLoginStatus({ tone: "idle", text: "还没有检测到 OAuth 文件。请先在登录窗口完成登录。" });
+        setOAuthLoginStatus({ tone: "idle", text: `还没有检测到 ${loginCredentialLabel}。请先在登录窗口完成登录。` });
         return;
       }
 
@@ -444,7 +520,7 @@ export function App() {
         tone: "success",
         text: inspection.accountEmail
           ? `已识别到账号 ${inspection.accountEmail}。`
-          : "已检测到 OAuth 文件，但没有识别出邮箱。请手动填写保存名称。"
+          : `已检测到 ${loginCredentialLabel}，但没有识别出邮箱。请手动填写保存名称。`
       });
     } catch (error) {
       setOAuthLoginStatus({ tone: "error", text: getErrorMessage(error) });
@@ -480,7 +556,7 @@ export function App() {
       const nextSettings = await getApi().getSettings();
       setSettings(nextSettings);
       setUsageByProfile({});
-      await loadProfiles();
+      await loadProfiles(selectedTool);
       setIsOAuthLoginOpen(false);
       setOAuthLoginSession(undefined);
       setOAuthLoginInspection(undefined);
@@ -536,6 +612,9 @@ export function App() {
   }
 
   async function refreshUsage(profileName: string) {
+    if (!isGeminiTool) {
+      return;
+    }
     if (isRefreshingAllUsageRef.current || refreshingUsageProfilesRef.current.has(profileName)) {
       return;
     }
@@ -566,6 +645,9 @@ export function App() {
   }
 
   async function refreshAllUsage() {
+    if (!isGeminiTool) {
+      return;
+    }
     if (isRefreshingAllUsageRef.current || refreshingUsageProfilesRef.current.size > 0) {
       return;
     }
@@ -621,63 +703,65 @@ export function App() {
   const isProfileActionBusy = Boolean(switchingProfile || deletingProfile);
   const hasRefreshingUsageProfiles = refreshingUsageProfiles.size > 0;
   const isUsageRefreshBusy = isRefreshingAllUsage || hasRefreshingUsageProfiles;
+  const isToolSwitchDisabled = isLoading || isProfileActionBusy || isSavingSettings || isUsageRefreshBusy;
 
   return (
     <main className="min-h-screen bg-[#f7f3ea] text-neutral-950">
       <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 pb-6 pt-5">
-        <header className="flex flex-col gap-4 border-b border-neutral-300/80 pb-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-neutral-950">Gemini OAuth Switcher</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-600">
-              打开后选择账号完成切换，随后可以直接关闭窗口。
-            </p>
-          </div>
+        <header className="flex items-center justify-between gap-4 border-b border-neutral-300/80 pb-3">
+          <h1 className="flex shrink-0 items-center gap-1.5 text-xl font-semibold text-neutral-950">
+            <TargetToolSwitch selectedTool={selectedTool} disabled={isToolSwitchDisabled} onChange={selectTargetTool} />
+            <span className="font-normal text-neutral-400">OAuth Switcher</span>
+          </h1>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              className="tool-button"
-              onClick={() => void loadProfiles()}
-              disabled={isLoading || isProfileActionBusy || isSavingSettings}
-              title="重新扫描账号列表"
-            >
-              <RefreshCw className={isLoading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-              刷新列表
-            </button>
-            <button
-              className="tool-button"
-              onClick={refreshAllUsage}
-              disabled={isUsageRefreshBusy || isLoading || result.profiles.length === 0}
-              title="查询所有账号的 Gemini 用量"
-            >
-              <Activity className={isRefreshingAllUsage ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
-              查询用量
-            </button>
-            <button className="tool-button" onClick={openOAuthLoginDialog} title="登录一个新的 Gemini OAuth 账号">
-              <Plus className="h-4 w-4" />
-              新增登录
-            </button>
-            <button
-              className="tool-button"
-              onClick={() => {
-                setSettingsStatus(undefined);
-                setTrayBehaviorDraft(settings.trayBehavior ?? "exit");
-                setAutoUpdateEnabledDraft(settings.autoUpdateEnabled !== false);
-                setIsSettingsOpen(true);
-              }}
-              title="打开设置"
-            >
-              <Settings className="h-4 w-4" />
-              设置
-            </button>
+          <div className="flex items-center gap-2">
+              <button
+                className="tool-button"
+                onClick={() => void loadProfiles(selectedTool)}
+                disabled={isLoading || isProfileActionBusy || isSavingSettings}
+                title="重新扫描账号列表"
+              >
+                <RefreshCw className={isLoading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+                刷新列表
+              </button>
+              {isGeminiTool ? (
+                <button
+                  className="tool-button"
+                  onClick={refreshAllUsage}
+                  disabled={isUsageRefreshBusy || isLoading || result.profiles.length === 0}
+                  title="查询所有账号的 Gemini 用量"
+                >
+                  <Activity className={isRefreshingAllUsage ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
+                  查询用量
+                </button>
+              ) : null}
+              <button className="tool-button" onClick={openOAuthLoginDialog} title={`登录一个新的 ${toolLabels.name} profile`}>
+                <Plus className="h-4 w-4" />
+                新增登录
+              </button>
+              <button
+                className="tool-button"
+                onClick={() => {
+                  setSettingsStatus(undefined);
+                  setTrayBehaviorDraft(settings.trayBehavior ?? "exit");
+                  setAutoUpdateEnabledDraft(settings.autoUpdateEnabled !== false);
+                  setIsSettingsOpen(true);
+                }}
+                title="打开设置"
+              >
+                <Settings className="h-4 w-4" />
+                设置
+              </button>
           </div>
         </header>
 
         <CurrentAccountPanel
+          selectedTool={selectedTool}
           currentProfile={currentProfile}
           displayName={currentProfileDisplayName}
           hasUnmatchedTarget={Boolean(result.targetHash && !currentProfile)}
           hasTargetOAuth={Boolean(result.targetHash)}
-          lastSwitch={settings.lastSwitch}
+          lastSwitch={visibleLastSwitch}
           localDiagnostics={localDiagnostics}
         />
 
@@ -685,8 +769,8 @@ export function App() {
 
         <section className="mt-4 overflow-hidden rounded-md border border-neutral-300 bg-white shadow-sm">
           <div className="grid grid-cols-[minmax(260px,1fr)_320px_156px] items-center gap-3 border-b border-neutral-200 bg-neutral-50 px-5 py-3 font-mono text-xs text-neutral-500">
-            <span>Profile</span>
-            <span>Quotas</span>
+            <span>账号</span>
+            <span>{isGeminiTool ? "用量" : "登录凭据"}</span>
             <span className="w-[6.5rem] text-left">操作</span>
           </div>
 
@@ -695,6 +779,7 @@ export function App() {
               {result.profiles.map((profile) => (
                 <ProfileRow
                   key={profile.name}
+                  selectedTool={selectedTool}
                   profile={profile}
                   isSwitching={switchingProfile === profile.name}
                   isDeleting={deletingProfile === profile.name}
@@ -721,7 +806,8 @@ export function App() {
         {isSettingsOpen ? (
           <SettingsDialog
             profilesRootDraft={profilesRootDraft}
-            targetOAuthPath={result.targetOAuthPath || "C:\\Users\\<current-user>\\.gemini\\oauth_creds.json"}
+            selectedTool={selectedTool}
+            targetOAuthPath={result.targetOAuthPath || toolLabels.targetPathFallback}
             targetGeminiDir={result.targetGeminiDir}
             profilesRoot={settings.profilesRoot}
             trayBehavior={trayBehaviorDraft}
@@ -742,6 +828,7 @@ export function App() {
 
         {isOAuthLoginOpen ? (
           <OAuthLoginDialog
+            selectedTool={selectedTool}
             profilesRoot={result.profilesRoot || settings.profilesRoot}
             session={oauthLoginSession}
             inspection={oauthLoginInspection}
@@ -778,7 +865,47 @@ export function App() {
   );
 }
 
+function TargetToolSwitch({
+  selectedTool,
+  disabled,
+  onChange
+}: {
+  selectedTool: TargetTool;
+  disabled: boolean;
+  onChange: (targetTool: TargetTool) => void | Promise<void>;
+}) {
+  const tools: TargetTool[] = ["gemini", "antigravity-cli"];
+  const currentIndex = tools.indexOf(selectedTool);
+  const prevTool = tools[(currentIndex - 1 + tools.length) % tools.length];
+  const nextTool = tools[(currentIndex + 1) % tools.length];
+
+  return (
+    <div className="flex items-center gap-1" aria-label="切换目标工具">
+      <div className="flex flex-col">
+        <button
+          className="copy-icon-button h-4"
+          onClick={() => void onChange(prevTool)}
+          disabled={disabled}
+          title={`切换到 ${TOOL_LABELS[prevTool].name}`}
+        >
+          <ChevronUp className="h-3 w-3" />
+        </button>
+        <button
+          className="copy-icon-button h-4"
+          onClick={() => void onChange(nextTool)}
+          disabled={disabled}
+          title={`切换到 ${TOOL_LABELS[nextTool].name}`}
+        >
+          <ChevronDown className="h-3 w-3" />
+        </button>
+      </div>
+      <span>{TOOL_LABELS[selectedTool].shortName}</span>
+    </div>
+  );
+}
+
 function CurrentAccountPanel({
+  selectedTool,
   currentProfile,
   displayName,
   hasUnmatchedTarget,
@@ -786,6 +913,7 @@ function CurrentAccountPanel({
   lastSwitch,
   localDiagnostics
 }: {
+  selectedTool: TargetTool;
   currentProfile?: ProfileInfo;
   displayName?: string;
   hasUnmatchedTarget: boolean;
@@ -793,12 +921,13 @@ function CurrentAccountPanel({
   lastSwitch?: LastSwitchResult;
   localDiagnostics?: LocalDiagnosticsResult;
 }) {
+  const toolLabels = TOOL_LABELS[selectedTool];
   const validationText = currentProfile
-    ? "目标 OAuth 已与该账号匹配"
+    ? `${toolLabels.targetLabel} 已与该 profile 匹配`
     : hasUnmatchedTarget
-      ? "目标 OAuth 存在，但不属于账号列表"
-      : "目标 OAuth 未设置";
-  const nextStepText = currentProfile ? "新开 PowerShell 后运行 gemini 即使用该账号" : "从下方列表选择账号并点击切换";
+      ? `${toolLabels.targetLabel} 存在，但不属于账号列表`
+      : `${toolLabels.targetLabel} 未设置`;
+  const nextStepText = currentProfile ? `新开 PowerShell 后运行 ${toolLabels.command} 即使用该${toolLabels.fileLabel}` : "从下方列表选择账号并点击切换";
 
   return (
     <section className="py-3.5">
@@ -851,6 +980,7 @@ function CurrentAccountPanel({
           </div>
 
           <SwitchReceiptPanel
+            selectedTool={selectedTool}
             currentProfile={currentProfile}
             displayName={displayName}
             hasTargetOAuth={hasTargetOAuth}
@@ -864,24 +994,31 @@ function CurrentAccountPanel({
 }
 
 function SwitchReceiptPanel({
+  selectedTool,
   currentProfile,
   displayName,
   hasTargetOAuth,
   lastSwitch,
   localDiagnostics
 }: {
+  selectedTool: TargetTool;
   currentProfile?: ProfileInfo;
   displayName?: string;
   hasTargetOAuth: boolean;
   lastSwitch?: LastSwitchResult;
   localDiagnostics?: LocalDiagnosticsResult;
 }) {
+  const toolLabels = TOOL_LABELS[selectedTool];
   const lastSwitchName = lastSwitch
     ? lastSwitch.profileName === currentProfile?.name
       ? displayName ?? currentProfile.name
       : lastSwitch.profileName
     : undefined;
-  const targetStatus = currentProfile ? "目标 OAuth 属于账号列表" : hasTargetOAuth ? "目标 OAuth 不属于账号列表" : "目标 OAuth 不存在";
+  const targetStatus = currentProfile
+    ? `${toolLabels.targetLabel} 属于账号列表`
+    : hasTargetOAuth
+      ? `${toolLabels.targetLabel} 不属于账号列表`
+      : `${toolLabels.targetLabel} 不存在`;
   const envRisks = localDiagnostics?.envRisks ?? [];
 
   return (
@@ -900,7 +1037,13 @@ function SwitchReceiptPanel({
       <div className="mt-2.5 space-y-1.5 border-b border-neutral-800/80 pb-2.5">
         <ReceiptLine
           tone={lastSwitch?.verified ? "success" : "muted"}
-          text={lastSwitch?.verified ? "源文件与目标文件 hash 一致" : "尚无切换校验记录"}
+          text={
+            lastSwitch?.verified
+              ? selectedTool === "antigravity-cli"
+                ? "源凭据与目标凭据 hash 一致"
+                : "源文件与目标文件 hash 一致"
+              : "尚无切换校验记录"
+          }
         />
         <ReceiptLine tone={currentProfile ? "success" : "warning"} text={targetStatus} />
       </div>
@@ -915,7 +1058,9 @@ function SwitchReceiptPanel({
               ) : (
                 <RiskChip tone="success" label="无环境变量风险" />
               )}
-              <RiskChip tone={localDiagnostics.geminiCommand.available ? "success" : "warning"} label={localDiagnostics.geminiCommand.available ? "gemini 可用" : "gemini 不可用"} />
+              {selectedTool === "gemini" ? (
+                <RiskChip tone={localDiagnostics.geminiCommand.available ? "success" : "warning"} label={localDiagnostics.geminiCommand.available ? "gemini 可用" : "gemini 不可用"} />
+              ) : null}
             </>
           ) : (
             <RiskChip tone="muted" label="本机检查中" />
@@ -965,6 +1110,7 @@ function TerminalLine({ label, value, valueClassName = "text-neutral-100" }: { l
 }
 
 function OAuthLoginDialog({
+  selectedTool,
   profilesRoot,
   session,
   inspection,
@@ -984,6 +1130,7 @@ function OAuthLoginDialog({
   onClose,
   onBackdropClick
 }: {
+  selectedTool: TargetTool;
   profilesRoot: string;
   session?: OAuthLoginSession;
   inspection?: OAuthLoginInspectResult;
@@ -1004,12 +1151,14 @@ function OAuthLoginDialog({
   onBackdropClick: (event: MouseEvent<HTMLDivElement>) => void;
 }) {
   const isBusy = isStarting || isInspecting || isSaving || isCancelling;
+  const toolLabels = TOOL_LABELS[selectedTool];
+  const credentialLabel = selectedTool === "antigravity-cli" ? "登录凭据" : "OAuth 文件";
   const trimmedProfileName = profileNameDraft.trim();
   const hasExistingProfileName = Boolean(trimmedProfileName && existingProfileNames.includes(trimmedProfileName));
   const hasOriginalConflict = Boolean(inspection?.conflictProfileName && trimmedProfileName === inspection.conflictProfileName);
   const duplicateProfileName = hasExistingProfileName ? trimmedProfileName : hasOriginalConflict ? inspection?.conflictProfileName : undefined;
   const canSave = Boolean(session && inspection?.oauthExists && trimmedProfileName && !duplicateProfileName) && !isBusy;
-  const savePathPreview = buildProfileOAuthPreview(profilesRoot, trimmedProfileName);
+  const savePathPreview = buildProfileLoginPreview(profilesRoot, trimmedProfileName, selectedTool);
 
   return (
     <div
@@ -1021,8 +1170,8 @@ function OAuthLoginDialog({
       <section className="flex max-h-[calc(100vh-2.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-md border border-neutral-300 bg-[#f7f3ea] shadow-xl">
         <div className="flex items-center justify-between gap-3 border-b border-neutral-300 px-5 py-4">
           <div>
-            <h2 className="text-lg font-semibold text-neutral-950">登录新账号</h2>
-            <p className="mt-1 text-sm text-neutral-600">先隔离登录，成功后自动识别账号并保存为 profile。</p>
+            <h2 className="text-lg font-semibold text-neutral-950">新增 {toolLabels.shortName} 登录</h2>
+            <p className="mt-1 text-sm text-neutral-600">先隔离登录，成功后检测 {credentialLabel} 并保存为 profile。</p>
           </div>
           <button className="copy-icon-button" onClick={onClose} disabled={isBusy} aria-label="关闭登录新账号" title="关闭">
             <X className="h-4 w-4" />
@@ -1048,10 +1197,10 @@ function OAuthLoginDialog({
           <section className="rounded-md border border-neutral-900/80 bg-neutral-950 px-4 py-3 font-mono text-sm text-neutral-100">
             <div className="text-emerald-400">&gt; 登录状态</div>
             <TerminalLine label="窗口" value={session ? "已打开" : "等待开始"} />
-            <TerminalLine label="凭据" value={inspection?.oauthExists ? "已检测到 OAuth 文件" : "等待检测"} />
+            <TerminalLine label="凭据" value={inspection?.oauthExists ? `已检测到 ${credentialLabel}` : "等待检测"} />
             <TerminalLine
               label="识别"
-              value={inspection?.accountEmail ? inspection.accountEmail : inspection?.oauthExists ? "未识别邮箱" : "等待 OAuth 文件"}
+              value={inspection?.accountEmail ? inspection.accountEmail : inspection?.oauthExists ? "未识别邮箱" : `等待 ${credentialLabel}`}
               valueClassName={inspection?.accountEmail ? "text-emerald-300" : "text-neutral-100"}
             />
           </section>
@@ -1122,6 +1271,7 @@ function OAuthLoginDialog({
 
 function SettingsDialog({
   profilesRootDraft,
+  selectedTool,
   targetOAuthPath,
   targetGeminiDir,
   profilesRoot,
@@ -1140,6 +1290,7 @@ function SettingsDialog({
   onClose
 }: {
   profilesRootDraft: string;
+  selectedTool: TargetTool;
   targetOAuthPath: string;
   targetGeminiDir: string;
   profilesRoot: string;
@@ -1157,6 +1308,8 @@ function SettingsDialog({
   onReveal: (target: RevealTarget) => void;
   onClose: () => void;
 }) {
+  const toolLabels = TOOL_LABELS[selectedTool];
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-neutral-950/35 px-4 py-10" role="dialog" aria-modal="true">
       <section className="w-full max-w-2xl rounded-md border border-neutral-300 bg-[#f7f3ea] p-5 shadow-xl">
@@ -1252,13 +1405,13 @@ function SettingsDialog({
               <FolderOpen className="h-4 w-4" />
               打开账号目录
             </button>
-            <button className="tool-button" onClick={() => onReveal("targetGeminiDir")} disabled={!targetGeminiDir} title="打开 Gemini CLI 默认目录">
+            <button className="tool-button" onClick={() => onReveal(toolLabels.targetReveal)} disabled={!targetGeminiDir} title={`打开 ${toolLabels.name} 目标目录`}>
               <FolderOpen className="h-4 w-4" />
-              打开 Gemini 目录
+              打开 {toolLabels.shortName} 目录
             </button>
           </div>
 
-          <PathLine label="目标 OAuth" value={targetOAuthPath} />
+          <PathLine label={toolLabels.targetLabel} value={targetOAuthPath} />
         </div>
       </section>
     </div>
@@ -1336,6 +1489,7 @@ function NicknameDialog({
 }
 
 function ProfileRow({
+  selectedTool,
   profile,
   nickname,
   isSwitching,
@@ -1350,6 +1504,7 @@ function ProfileRow({
   onSetNickname,
   onRefreshUsage
 }: {
+  selectedTool: TargetTool;
   profile: ProfileInfo;
   nickname?: string;
   isSwitching: boolean;
@@ -1365,6 +1520,8 @@ function ProfileRow({
   onRefreshUsage: () => void;
 }) {
   const displayName = nickname || profile.name;
+  const isGeminiTool = selectedTool === "gemini";
+  const toolLabels = TOOL_LABELS[selectedTool];
 
   return (
     <div className="grid grid-cols-[minmax(260px,1fr)_320px_156px] items-center gap-3 px-5 py-4 text-sm">
@@ -1375,7 +1532,7 @@ function ProfileRow({
         />
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-1.5">
-            <span className="min-w-0 truncate font-semibold text-neutral-950" title={profile.name}>
+            <span className="min-w-0 truncate font-semibold text-neutral-950" title={profile.oauthPath}>
               {displayName}
             </span>
             <button className="copy-icon-button" onClick={onCopyName} aria-label={`复制 ${profile.name}`} title="复制完整 profile 名称">
@@ -1385,33 +1542,54 @@ function ProfileRow({
               <Pencil className="h-3.5 w-3.5" />
             </button>
             {profile.isCurrent ? <span className="status-pill bg-emerald-100 text-emerald-800">当前</span> : null}
-            {!profile.exists ? <span className="status-pill bg-amber-100 text-amber-800">缺 OAuth</span> : null}
+            {!profile.exists ? <span className="status-pill bg-amber-100 text-amber-800">{toolLabels.missingLabel}</span> : null}
           </div>
           {nickname ? (
             <div className="mt-0.5 truncate font-mono text-[11px] text-neutral-500" title={profile.name}>
               {profile.name}
             </div>
           ) : null}
-          <div className="mt-1 truncate font-mono text-xs text-neutral-500" title={profile.oauthPath}>
-            {shortenPath(profile.oauthPath)}
-          </div>
+          {profile.oauthPath ? (
+            <div className="mt-1 flex min-w-0 items-center gap-1">
+              <span className="truncate font-mono text-[11px] text-neutral-400" title={profile.oauthPath}>
+                {profile.oauthPath}
+              </span>
+              <button
+                className="copy-icon-button shrink-0"
+                aria-label="复制路径"
+                title={`复制路径：${profile.oauthPath}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void copyText(profile.oauthPath).catch(() => null);
+                }}
+              >
+                <Copy className="h-3 w-3" />
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
-      <UsageCell profile={profile} usage={usage} isRefreshing={isRefreshingUsage} onRefresh={onRefreshUsage} />
+      {isGeminiTool ? (
+        <UsageCell profile={profile} usage={usage} isRefreshing={isRefreshingUsage} onRefresh={onRefreshUsage} />
+      ) : (
+        <ProfileFileCell profile={profile} />
+      )}
       <div className="flex justify-start gap-2">
         <button className="switch-button" onClick={onSwitch} disabled={!profile.exists || profile.isCurrent || isSwitchDisabled}>
           <Shuffle className={isSwitching ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
           {profile.isCurrent ? "已使用" : isSwitching ? "切换中" : "切换"}
         </button>
-        <button
-          className="danger-icon-button"
-          onClick={onDelete}
-          disabled={profile.isCurrent || isDeleteDisabled}
-          aria-label={`删除 ${profile.name}`}
-          title={profile.isCurrent ? "当前账号不能删除，请先切换到其他账号" : "删除 profile 到回收站"}
-        >
-          <Trash2 className={isDeleting ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
-        </button>
+        {isGeminiTool ? (
+          <button
+            className="danger-icon-button"
+            onClick={onDelete}
+            disabled={profile.isCurrent || isDeleteDisabled}
+            aria-label={`删除 ${profile.name}`}
+            title={profile.isCurrent ? "当前账号不能删除，请先切换到其他账号" : "删除 profile 到回收站"}
+          >
+            <Trash2 className={isDeleting ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -1451,6 +1629,27 @@ function UsageCell({
           <span className="text-xs text-neutral-500">未查询</span>
         </div>
       )}
+    </div>
+  );
+}
+
+function ProfileFileCell({ profile }: { profile: ProfileInfo }) {
+  if (!profile.exists) {
+    return <div className="text-xs text-neutral-500">无登录凭据</div>;
+  }
+
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center gap-2 text-xs font-semibold text-neutral-700">
+        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+        登录凭据已就绪
+      </div>
+      {profile.updatedAtMs ? (
+        <div className="mt-1 flex items-center gap-1 text-[11px] text-neutral-500">
+          <Clock className="h-3 w-3" />
+          更新于 {formatProfileUpdatedTime(profile.updatedAtMs)}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1597,6 +1796,24 @@ function formatRelativeTime(value: number): string {
   return `${Math.floor(hours / 24)} 天前查询`;
 }
 
+function formatProfileUpdatedTime(value: number): string {
+  const diffMs = Math.max(0, Date.now() - value);
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) {
+    return "刚刚";
+  }
+  if (minutes < 60) {
+    return `${minutes} 分钟前`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours} 小时前`;
+  }
+
+  return `${Math.floor(hours / 24)} 天前`;
+}
+
 function formatSwitchRelativeTime(value: number): string {
   const diffMs = Math.max(0, Date.now() - value);
   const minutes = Math.floor(diffMs / 60_000);
@@ -1638,27 +1855,18 @@ function formatResetTime(value?: string): string | undefined {
   }).format(date);
 }
 
-function shortenPath(value: string): string {
-  if (!value) {
-    return "";
-  }
 
-  const parts = value.split(/[\\/]+/).filter(Boolean);
-  if (parts.length <= 4) {
-    return value;
-  }
-
-  const root = value.match(/^[A-Za-z]:/)?.[0];
-  const tail = parts.slice(-4).join("\\");
-  return root ? `${root}\\...\\${tail}` : `...\\${tail}`;
-}
-
-function buildProfileOAuthPreview(profilesRoot: string, profileName: string): string {
+function buildProfileLoginPreview(profilesRoot: string, profileName: string, selectedTool: TargetTool): string {
   if (!profilesRoot || !profileName) {
     return "";
   }
 
-  return `${profilesRoot.replace(/[\\/]+$/, "")}\\${profileName}\\.gemini\\oauth_creds.json`;
+  if (selectedTool === "antigravity-cli") {
+    return `Windows Credential Manager：${profileName} 的 Antigravity 登录凭据`;
+  }
+
+  const relativePath = ".gemini\\oauth_creds.json";
+  return `${profilesRoot.replace(/[\\/]+$/, "")}\\${profileName}\\${relativePath}`;
 }
 
 function usageBarClass(utilization: number): string {

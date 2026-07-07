@@ -2,7 +2,7 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, type OpenDialogOptions } from "electron";
 import type { AppSettings, OAuthLoginCancelRequest, OAuthLoginSaveRequest, OAuthLoginSession, RevealTarget, TrayBehavior } from "../shared/types";
-import { getDefaultProfilesRoot, getDefaultTargetGeminiDir, getDefaultTargetOAuthPath, getSettingsPath } from "./paths";
+import { getDefaultProfilesRoot, getDefaultTargetAntigravityCliDir, getDefaultTargetGeminiDir, getDefaultTargetOAuthPath, getSettingsPath } from "./paths";
 import {
   cleanupOAuthLoginSession,
   cleanupStaleOAuthLoginSessions,
@@ -11,6 +11,8 @@ import {
   saveOAuthLoginSession
 } from "./oauthLoginService";
 import { deleteProfile, getProfileOAuthPath, listProfiles, switchProfile, validateProfileName } from "./profileService";
+import { getProfileTargetConfig } from "./profileTargets";
+import { nativeAntigravityCredentialStore } from "./antigravityCredentialService";
 import { readSettings, saveSettings } from "./settings";
 import { collectLocalDiagnostics } from "./systemDiagnostics";
 import { startAutoUpdateChecks } from "./updateService";
@@ -39,6 +41,16 @@ function getAppIconPath(): string | undefined {
 
 function getConfiguredProfilesRoot(settings: AppSettings): string {
   return settings.profilesRoot || getDefaultProfilesRoot();
+}
+
+function getCredentialOptions(target: ReturnType<typeof getProfileTargetConfig>, profilesRoot: string) {
+  return {
+    credentialStore: target.credentialTarget ? nativeAntigravityCredentialStore : undefined,
+    credentialTarget: target.credentialTarget,
+    getProfileCredentialTarget: target.getProfileCredentialTarget
+      ? (profileName: string) => target.getProfileCredentialTarget?.(profilesRoot, profileName) ?? ""
+      : undefined
+  };
 }
 
 async function openResolvedPath(targetPath: string): Promise<void> {
@@ -169,7 +181,7 @@ function normalizeOAuthLoginCancelRequest(value: unknown): OAuthLoginCancelReque
 }
 
 function normalizeRevealTarget(value: unknown): RevealTarget {
-  if (value === "profilesRoot" || value === "targetGeminiDir") {
+  if (value === "profilesRoot" || value === "targetGeminiDir" || value === "targetAntigravityCliDir") {
     return value;
   }
 
@@ -271,31 +283,42 @@ function registerIpcHandlers(): void {
     return nextSettings;
   });
 
-  ipcMain.handle("profiles:list", async () => {
+  ipcMain.handle("profiles:list", async (_event, rawTargetTool?: unknown) => {
     const settings = await readSettings(settingsPath());
-    const targetOAuthPath = getDefaultTargetOAuthPath();
+    const profilesRoot = getConfiguredProfilesRoot(settings);
+    const target = getProfileTargetConfig(rawTargetTool ?? settings.selectedTool);
 
     return listProfiles({
-      profilesRoot: getConfiguredProfilesRoot(settings),
-      targetOAuthPath
+      profilesRoot,
+      targetOAuthPath: target.targetPath,
+      profileFileRelativePath: target.profileFileRelativePath,
+      ...getCredentialOptions(target, profilesRoot)
     });
   });
 
-  ipcMain.handle("profiles:switch", async (_event, rawProfileName: unknown) => {
+  ipcMain.handle("profiles:switch", async (_event, rawProfileName: unknown, rawTargetTool?: unknown) => {
     const profileName = normalizeProfileName(rawProfileName);
     const settings = await readSettings(settingsPath());
+    const profilesRoot = getConfiguredProfilesRoot(settings);
+    const target = getProfileTargetConfig(rawTargetTool ?? settings.selectedTool);
     const result = await switchProfile({
-      profilesRoot: getConfiguredProfilesRoot(settings),
+      profilesRoot,
       profileName,
-      targetOAuthPath: getDefaultTargetOAuthPath()
+      targetOAuthPath: target.targetPath,
+      profileFileRelativePath: target.profileFileRelativePath,
+      profileFileLabel: target.profileFileLabel,
+      targetDirectoryLabel: target.targetDirectoryLabel,
+      ...getCredentialOptions(target, profilesRoot)
     });
 
     await saveSettings(settingsPath(), {
+      selectedTool: target.tool,
       lastSelectedProfile: profileName,
       lastSwitch: {
         profileName,
         switchedAt: Date.now(),
-        verified: true
+        verified: true,
+        targetTool: target.tool
       }
     });
 
@@ -355,10 +378,12 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("diagnostics:get", async () => collectLocalDiagnostics());
 
-  ipcMain.handle("oauthLogin:start", async () => {
+  ipcMain.handle("oauthLogin:start", async (_event, rawTargetTool?: unknown) => {
     const settings = await readSettings(settingsPath());
+    const target = getProfileTargetConfig(rawTargetTool ?? settings.selectedTool);
     const session = await createOAuthLoginSession({
-      profilesRoot: getConfiguredProfilesRoot(settings)
+      profilesRoot: getConfiguredProfilesRoot(settings),
+      targetTool: target.tool
     });
     oauthLoginSessions.set(session.sessionId, session);
 
@@ -368,11 +393,15 @@ function registerIpcHandlers(): void {
   ipcMain.handle("oauthLogin:inspect", async (_event, rawSessionId: unknown) => {
     const session = getOAuthLoginSession(rawSessionId);
     const settings = await readSettings(settingsPath());
+    const profilesRoot = getConfiguredProfilesRoot(settings);
+    const target = getProfileTargetConfig(session.targetTool);
 
     return inspectOAuthLoginSession({
-      profilesRoot: getConfiguredProfilesRoot(settings),
+      profilesRoot,
       sessionId: session.sessionId,
-      pendingProfilePath: session.pendingProfilePath
+      pendingProfilePath: session.pendingProfilePath,
+      targetTool: session.targetTool,
+      ...getCredentialOptions(target, profilesRoot)
     });
   });
 
@@ -381,12 +410,15 @@ function registerIpcHandlers(): void {
     const session = getOAuthLoginSession(request.sessionId);
     const settings = await readSettings(settingsPath());
     const profilesRoot = getConfiguredProfilesRoot(settings);
+    const target = getProfileTargetConfig(session.targetTool);
     const result = await saveOAuthLoginSession({
       profilesRoot,
       sessionId: session.sessionId,
       pendingProfilePath: session.pendingProfilePath,
+      targetTool: session.targetTool,
       profileName: request.profileName,
-      nickname: request.nickname
+      nickname: request.nickname,
+      ...getCredentialOptions(target, profilesRoot)
     });
 
     const nextNicknames = { ...(settings.profileNicknames ?? {}) };
@@ -396,6 +428,7 @@ function registerIpcHandlers(): void {
       delete nextNicknames[result.profileName];
     }
     await saveSettings(settingsPath(), {
+      selectedTool: session.targetTool ?? "gemini",
       profileNicknames: nextNicknames
     });
     await cleanupOAuthLoginSession({
@@ -431,6 +464,10 @@ function registerIpcHandlers(): void {
     const target = normalizeRevealTarget(rawTarget);
     if (target === "targetGeminiDir") {
       await openResolvedPath(getDefaultTargetGeminiDir());
+      return;
+    }
+    if (target === "targetAntigravityCliDir") {
+      await openResolvedPath(getDefaultTargetAntigravityCliDir());
       return;
     }
 

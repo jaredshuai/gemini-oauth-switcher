@@ -1,16 +1,26 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import type { OAuthLoginInspectResult, OAuthLoginSaveResult, OAuthLoginSession } from "../shared/types";
-import { fileExists, hashFile, validateProfileName } from "./profileService";
+import type { OAuthLoginInspectResult, OAuthLoginSaveResult, OAuthLoginSession, TargetTool } from "../shared/types";
+import {
+  ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET,
+  type CredentialStore,
+  getAntigravityProfileCredentialTarget,
+  hashCredentialPayload,
+  nativeAntigravityCredentialStore
+} from "./antigravityCredentialService";
+import { fileExists, getProfileFilePath, hashFile, validateProfileName } from "./profileService";
+import { getProfileTargetConfig, normalizeTargetTool } from "./profileTargets";
 
 const GEMINI_DIR = ".gemini";
 const OAUTH_FILE = "oauth_creds.json";
 const PENDING_LOGIN_PREFIX = ".pending-login-";
 
-type LaunchPowerShell = (script: string) => Promise<void>;
+const hasPwsh = spawnSync("where.exe", ["pwsh.exe"], { stdio: "ignore" }).status === 0;
+
+type LaunchPowerShell = (script: string, title: string) => Promise<void>;
 type TerminateProcessTree = (pid: number) => Promise<void>;
 
 interface PowerShellLaunchCommand {
@@ -22,10 +32,12 @@ interface PowerShellLoginScriptOptions {
   profilePath: string;
   pidFilePath?: string;
   workingDirectory: string;
+  targetTool?: TargetTool;
 }
 
 interface CreateOAuthLoginSessionOptions {
   profilesRoot: string;
+  targetTool?: TargetTool;
   launchPowerShell?: LaunchPowerShell;
   now?: () => Date;
   randomId?: () => string;
@@ -35,7 +47,10 @@ interface OAuthLoginSessionOptions {
   profilesRoot: string;
   sessionId: string;
   pendingProfilePath: string;
+  targetTool?: TargetTool;
   pidFilePath?: string;
+  credentialStore?: CredentialStore;
+  credentialTarget?: string;
 }
 
 interface CleanupOAuthLoginSessionOptions extends OAuthLoginSessionOptions {
@@ -62,6 +77,7 @@ interface CleanupStaleOAuthLoginSessionsResult {
 interface SaveOAuthLoginSessionOptions extends OAuthLoginSessionOptions {
   profileName?: string;
   nickname?: string;
+  getProfileCredentialTarget?: (profileName: string) => string;
 }
 
 interface ParsedOAuthIdentity {
@@ -70,6 +86,7 @@ interface ParsedOAuthIdentity {
 
 export async function createOAuthLoginSession(options: CreateOAuthLoginSessionOptions): Promise<OAuthLoginSession> {
   const profilesRoot = path.resolve(options.profilesRoot);
+  const targetTool = normalizeTargetTool(options.targetTool);
   await mkdir(profilesRoot, { recursive: true });
 
   const sessionId = makeSessionId(options.now?.() ?? new Date(), options.randomId?.() ?? randomBytes(4).toString("hex"));
@@ -80,43 +97,60 @@ export async function createOAuthLoginSession(options: CreateOAuthLoginSessionOp
   const script = buildPowerShellLoginScript({
     profilePath: pendingProfilePath,
     pidFilePath,
-    workingDirectory: profilesRoot
+    workingDirectory: profilesRoot,
+    targetTool
   });
-  await (options.launchPowerShell ?? launchPowerShellWindow)(script);
+  await (options.launchPowerShell ?? launchPowerShellWindow)(
+    script,
+    targetTool === "antigravity-cli" ? "Antigravity CLI Login" : "Gemini OAuth Login"
+  );
 
   return {
     sessionId,
+    targetTool,
     pendingProfilePath,
     pidFilePath,
-    oauthPath: getOAuthPath(pendingProfilePath),
+    oauthPath: getLoginCredentialPath(pendingProfilePath, targetTool),
     startedAt: Date.now()
   };
 }
 
 export async function inspectOAuthLoginSession(options: OAuthLoginSessionOptions): Promise<OAuthLoginInspectResult> {
   const profilesRoot = path.resolve(options.profilesRoot);
+  const targetTool = normalizeTargetTool(options.targetTool);
   const pendingProfilePath = path.resolve(options.pendingProfilePath);
   assertPendingProfilePath(profilesRoot, pendingProfilePath);
 
-  const oauthPath = getOAuthPath(pendingProfilePath);
-  if (!(await fileExists(oauthPath))) {
+  const oauthPath = getLoginCredentialPath(pendingProfilePath, targetTool);
+  const credentialMode = getAntigravityLoginCredentialMode(options);
+  const credentialPayload = credentialMode ? await credentialMode.store.get(credentialMode.target) : undefined;
+  const oauthExists = await fileExists(oauthPath);
+  if (!oauthExists && !credentialPayload) {
     return {
       sessionId: options.sessionId,
+      targetTool,
       pendingProfilePath,
       oauthPath,
       oauthExists: false
     };
   }
 
-  const [oauthStat, identity, sha256] = await Promise.all([stat(oauthPath), readOAuthIdentity(oauthPath), hashFile(oauthPath)]);
-  const proposedBaseName = identity.accountEmail ?? `gemini-account-${sha256.slice(0, 8)}`;
+  const [oauthStat, identity, sha256] = oauthExists
+    ? await Promise.all([stat(oauthPath), readOAuthIdentity(oauthPath), hashFile(oauthPath)])
+    : [
+        await stat(pendingProfilePath),
+        readOAuthIdentityFromText(credentialPayload ?? ""),
+        hashCredentialPayload(credentialPayload ?? "")
+      ] as const;
+  const proposedBaseName = identity.accountEmail ?? `${targetTool === "antigravity-cli" ? "antigravity-profile" : "gemini-account"}-${sha256.slice(0, 8)}`;
   const proposedProfileName = sanitizeProfileName(proposedBaseName);
   const conflictProfileName = await findConflictProfileName(profilesRoot, proposedProfileName, identity.accountEmail);
 
   return {
     sessionId: options.sessionId,
+    targetTool,
     pendingProfilePath,
-    oauthPath,
+    oauthPath: oauthExists ? oauthPath : (credentialMode?.target ?? oauthPath),
     oauthExists: true,
     updatedAt: oauthStat.mtime.toISOString(),
     updatedAtMs: oauthStat.mtimeMs,
@@ -132,13 +166,17 @@ export async function inspectOAuthLoginSession(options: OAuthLoginSessionOptions
 
 export async function saveOAuthLoginSession(options: SaveOAuthLoginSessionOptions): Promise<OAuthLoginSaveResult> {
   const profilesRoot = path.resolve(options.profilesRoot);
+  const targetTool = normalizeTargetTool(options.targetTool);
   const pendingProfilePath = path.resolve(options.pendingProfilePath);
   assertPendingProfilePath(profilesRoot, pendingProfilePath);
 
   const inspection = await inspectOAuthLoginSession({
     profilesRoot,
     sessionId: options.sessionId,
-    pendingProfilePath
+    pendingProfilePath,
+    targetTool,
+    credentialStore: options.credentialStore,
+    credentialTarget: options.credentialTarget
   });
   if (!inspection.oauthExists) {
     throw new Error("OAuth file has not been created yet.");
@@ -157,12 +195,24 @@ export async function saveOAuthLoginSession(options: SaveOAuthLoginSessionOption
     throw new Error(`Profile already exists: ${profileName}`);
   }
 
+  const credentialMode = getAntigravityLoginCredentialMode(options);
+  const credentialPayload = credentialMode ? await credentialMode.store.get(credentialMode.target) : undefined;
   await rename(pendingProfilePath, targetProfilePath);
-  const savedOAuthPath = getOAuthPath(targetProfilePath);
-  const savedHash = await hashFile(savedOAuthPath);
+
+  let savedOAuthPath = getLoginCredentialPath(targetProfilePath, targetTool);
+  let savedHash = await fileExists(savedOAuthPath) ? await hashFile(savedOAuthPath) : inspection.sha256;
+  if (credentialMode && credentialPayload) {
+    const profileCredentialTarget = (options.getProfileCredentialTarget ?? ((name: string) => getAntigravityProfileCredentialTarget(profilesRoot, name)))(
+      profileName
+    );
+    await credentialMode.store.set(profileCredentialTarget, credentialPayload);
+    savedOAuthPath = profileCredentialTarget;
+    savedHash = hashCredentialPayload(credentialPayload);
+  }
 
   return {
     sessionId: options.sessionId,
+    targetTool,
     profileName,
     nickname: options.nickname?.trim() || inspection.proposedNickname,
     profilePath: targetProfilePath,
@@ -282,6 +332,7 @@ export async function cleanupStaleOAuthLoginSessions(
 }
 
 export function buildPowerShellLoginScript(options: PowerShellLoginScriptOptions): string {
+  const targetTool = normalizeTargetTool(options.targetTool);
   const lines = [
     `$profile = '${escapePowerShellSingleQuoted(options.profilePath)}'`,
     `$workspace = '${escapePowerShellSingleQuoted(options.workingDirectory)}'`,
@@ -294,15 +345,32 @@ export function buildPowerShellLoginScript(options: PowerShellLoginScriptOptions
       "Set-Content -LiteralPath $pidFile -Value $PID -Encoding ascii -Force"
     );
   }
-  lines.push(
-    "$env:GEMINI_CLI_HOME = $profile",
-    "Remove-Item Env:\\GEMINI_API_KEY -ErrorAction SilentlyContinue",
-    "Remove-Item Env:\\GOOGLE_API_KEY -ErrorAction SilentlyContinue",
-    "Remove-Item Env:\\GOOGLE_GEMINI_BASE_URL -ErrorAction SilentlyContinue",
-    "Remove-Item Env:\\GOOGLE_VERTEX_BASE_URL -ErrorAction SilentlyContinue",
-    "Set-Location -LiteralPath $workspace",
-    "gemini --skip-trust"
-  );
+  if (targetTool === "antigravity-cli") {
+    lines.push(
+      "$env:USERPROFILE = $profile",
+      "$env:HOME = $profile",
+      "$env:APPDATA = Join-Path $profile 'AppData\\Roaming'",
+      "$env:LOCALAPPDATA = Join-Path $profile 'AppData\\Local'",
+      "New-Item -ItemType Directory -Force -Path $env:APPDATA | Out-Null",
+      "New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA | Out-Null",
+      "Remove-Item Env:\\GEMINI_API_KEY -ErrorAction SilentlyContinue",
+      "Remove-Item Env:\\GOOGLE_API_KEY -ErrorAction SilentlyContinue",
+      "Remove-Item Env:\\GOOGLE_GEMINI_BASE_URL -ErrorAction SilentlyContinue",
+      "Remove-Item Env:\\GOOGLE_VERTEX_BASE_URL -ErrorAction SilentlyContinue",
+      "Set-Location -LiteralPath $workspace",
+      "agy"
+    );
+  } else {
+    lines.push(
+      "$env:GEMINI_CLI_HOME = $profile",
+      "Remove-Item Env:\\GEMINI_API_KEY -ErrorAction SilentlyContinue",
+      "Remove-Item Env:\\GOOGLE_API_KEY -ErrorAction SilentlyContinue",
+      "Remove-Item Env:\\GOOGLE_GEMINI_BASE_URL -ErrorAction SilentlyContinue",
+      "Remove-Item Env:\\GOOGLE_VERTEX_BASE_URL -ErrorAction SilentlyContinue",
+      "Set-Location -LiteralPath $workspace",
+      "gemini --skip-trust"
+    );
+  }
   return lines.join("\r\n");
 }
 
@@ -310,8 +378,13 @@ export function getOAuthPath(profilePath: string): string {
   return path.join(profilePath, GEMINI_DIR, OAUTH_FILE);
 }
 
-async function launchPowerShellWindow(script: string): Promise<void> {
-  const command = buildPowerShellLaunchCommand(script);
+export function getLoginCredentialPath(profilePath: string, targetTool?: TargetTool): string {
+  const target = getProfileTargetConfig(targetTool);
+  return getProfileFilePath(profilePath, "", target.profileFileRelativePath);
+}
+
+async function launchPowerShellWindow(script: string, title: string): Promise<void> {
+  const command = buildPowerShellLaunchCommand(script, title);
   const child = spawn(command.file, command.args, {
     detached: true,
     stdio: "ignore",
@@ -320,16 +393,17 @@ async function launchPowerShellWindow(script: string): Promise<void> {
   child.unref();
 }
 
-export function buildPowerShellLaunchCommand(script: string): PowerShellLaunchCommand {
+export function buildPowerShellLaunchCommand(script: string, title = "Gemini OAuth Login"): PowerShellLaunchCommand {
   const encodedCommand = Buffer.from(script, "utf16le").toString("base64");
+  const psExe = hasPwsh ? "pwsh.exe" : "powershell.exe";
   return {
     file: "cmd.exe",
     args: [
       "/d",
       "/c",
       "start",
-      "Gemini OAuth Login",
-      "powershell.exe",
+      title,
+      psExe,
       "-NoExit",
       "-NoProfile",
       "-ExecutionPolicy",
@@ -341,9 +415,17 @@ export function buildPowerShellLaunchCommand(script: string): PowerShellLaunchCo
 }
 
 async function readOAuthIdentity(oauthPath: string): Promise<ParsedOAuthIdentity> {
+  try {
+    return readOAuthIdentityFromText(await readFile(oauthPath, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function readOAuthIdentityFromText(value: string): ParsedOAuthIdentity {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(await readFile(oauthPath, "utf8"));
+    parsed = JSON.parse(value);
   } catch {
     return {};
   }
@@ -359,6 +441,22 @@ async function readOAuthIdentity(oauthPath: string): Promise<ParsedOAuthIdentity
   }
 
   return { accountEmail: findAnyEmail(parsed) };
+}
+
+function getAntigravityLoginCredentialMode(options: OAuthLoginSessionOptions):
+  | {
+      store: CredentialStore;
+      target: string;
+    }
+  | undefined {
+  if (normalizeTargetTool(options.targetTool) !== "antigravity-cli") {
+    return undefined;
+  }
+
+  return {
+    store: options.credentialStore ?? nativeAntigravityCredentialStore,
+    target: options.credentialTarget ?? ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET
+  };
 }
 
 function findEmailByPreferredKey(value: unknown): string | undefined {

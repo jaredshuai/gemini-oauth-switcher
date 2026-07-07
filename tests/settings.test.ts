@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir, homedir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { getDefaultProfilesRoot } from "../src/main/paths";
+import { getDefaultProfilesRoot, getDefaultTargetAntigravityCliSettingsPath } from "../src/main/paths";
 import { readSettings, saveSettings } from "../src/main/settings";
 import type { AppSettings } from "../src/shared/types";
 
@@ -21,6 +21,12 @@ afterEach(async () => {
 describe("settings defaults", () => {
   it("derives the default profilesRoot from the current user home directory", () => {
     expect(getDefaultProfilesRoot()).toBe(path.join(homedir(), ".gemini-homes"));
+  });
+
+  it("derives the default Antigravity CLI settings path from the current user home directory", () => {
+    expect(getDefaultTargetAntigravityCliSettingsPath()).toBe(
+      path.join(homedir(), ".gemini", "antigravity-cli", "settings.json")
+    );
   });
 
   it("uses the default profilesRoot when no settings file exists", async () => {
@@ -95,6 +101,27 @@ describe("settings defaults", () => {
     });
   });
 
+  it("stores the selected target tool and falls back to Gemini for unknown values", async () => {
+    const root = await makeTempRoot();
+    const settingsPath = path.join(root, "settings.json");
+
+    await saveSettings(settingsPath, {
+      selectedTool: "antigravity-cli"
+    } as Partial<AppSettings> & Record<string, unknown>);
+
+    await expect(readSettings(settingsPath)).resolves.toMatchObject({
+      selectedTool: "antigravity-cli"
+    });
+
+    await saveSettings(settingsPath, {
+      selectedTool: "unknown"
+    } as unknown as Partial<AppSettings> & Record<string, unknown>);
+
+    await expect(readSettings(settingsPath)).resolves.toMatchObject({
+      selectedTool: "gemini"
+    });
+  });
+
   it("serializes concurrent settings saves so patches are merged", async () => {
     const root = await makeTempRoot();
     const settingsPath = path.join(root, "settings.json");
@@ -121,7 +148,8 @@ describe("settings defaults", () => {
       lastSwitch: {
         profileName: "ultra",
         switchedAt: 1778715600000,
-        verified: true
+        verified: true,
+        targetTool: "antigravity-cli"
       },
       sourceHash: "should-not-be-kept",
       targetHash: "should-not-be-kept"
@@ -134,7 +162,8 @@ describe("settings defaults", () => {
     expect(settings.lastSwitch).toEqual({
       profileName: "ultra",
       switchedAt: 1778715600000,
-      verified: true
+      verified: true,
+      targetTool: "antigravity-cli"
     });
     expect(settings).not.toHaveProperty("sourceHash");
     expect(settings).not.toHaveProperty("targetHash");

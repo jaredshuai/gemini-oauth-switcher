@@ -13,6 +13,7 @@ import {
   inspectOAuthLoginSession,
   saveOAuthLoginSession
 } from "../src/main/oauthLoginService";
+import type { CredentialStore } from "../src/main/antigravityCredentialService";
 
 const tempRoots: string[] = [];
 
@@ -30,8 +31,32 @@ async function writeOAuth(profilePath: string, content: unknown): Promise<string
   return oauthPath;
 }
 
+async function writeAntigravitySettings(profilePath: string, content: unknown): Promise<string> {
+  const antigravityDir = path.join(profilePath, ".gemini", "antigravity-cli");
+  await mkdir(antigravityDir, { recursive: true });
+  const settingsPath = path.join(antigravityDir, "settings.json");
+  await writeFile(settingsPath, `${JSON.stringify(content)}\n`, "utf8");
+  return settingsPath;
+}
+
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function createMemoryCredentialStore(initialEntries: Record<string, string> = {}): CredentialStore & { entries: Map<string, string> } {
+  const entries = new Map(Object.entries(initialEntries));
+  return {
+    entries,
+    async get(target) {
+      return entries.get(target);
+    },
+    async set(target, payload) {
+      entries.set(target, payload);
+    },
+    async delete(target) {
+      entries.delete(target);
+    }
+  };
 }
 
 afterEach(async () => {
@@ -69,6 +94,35 @@ describe("oauthLoginService", () => {
     expect(launchedScripts[0]).toContain("Remove-Item Env:\\GOOGLE_VERTEX_BASE_URL");
     expect(launchedScripts[0]).toContain("Set-Location -LiteralPath $workspace");
     expect(launchedScripts[0]).toContain("gemini --skip-trust");
+  });
+
+  it("creates a pending Antigravity login profile and launches agy with an isolated user home", async () => {
+    const root = await makeTempRoot();
+    const launchedScripts: string[] = [];
+    const launchedTitles: string[] = [];
+
+    const session = await createOAuthLoginSession({
+      profilesRoot: root,
+      targetTool: "antigravity-cli",
+      launchPowerShell: async (script, title) => {
+        launchedScripts.push(script);
+        launchedTitles.push(title);
+      },
+      now: () => new Date("2026-05-14T08:00:00.000Z"),
+      randomId: () => "abc123"
+    });
+
+    expect(session.targetTool).toBe("antigravity-cli");
+    expect(session.oauthPath).toBe(path.join(session.pendingProfilePath, ".gemini", "antigravity-cli", "settings.json"));
+    expect(launchedScripts).toHaveLength(1);
+    expect(launchedTitles).toEqual(["Antigravity CLI Login"]);
+    expect(launchedScripts[0]).toContain(`$env:USERPROFILE = $profile`);
+    expect(launchedScripts[0]).toContain(`$env:HOME = $profile`);
+    expect(launchedScripts[0]).toContain(`$env:APPDATA = Join-Path $profile 'AppData\\Roaming'`);
+    expect(launchedScripts[0]).toContain(`$env:LOCALAPPDATA = Join-Path $profile 'AppData\\Local'`);
+    expect(launchedScripts[0]).toContain("agy");
+    expect(launchedScripts[0]).not.toContain("GEMINI_CLI_HOME");
+    expect(launchedScripts[0]).not.toContain("gemini --skip-trust");
   });
 
   it("detects the OAuth file and reports a duplicate profile name from the recognized email", async () => {
@@ -149,6 +203,107 @@ describe("oauthLoginService", () => {
         profileName: "alice@example.com"
       })
     ).rejects.toThrow(/already exists/);
+  });
+
+  it("detects and saves an Antigravity CLI settings login as a direct child profile", async () => {
+    const root = await makeTempRoot();
+    const pendingProfilePath = path.join(root, ".pending-login-agy-save");
+    await writeAntigravitySettings(pendingProfilePath, {
+      account: {
+        email: "Agy.User@Gmail.com"
+      },
+      trustedFolders: []
+    });
+
+    const inspection = await inspectOAuthLoginSession({
+      profilesRoot: root,
+      sessionId: "agy-save",
+      pendingProfilePath,
+      targetTool: "antigravity-cli"
+    });
+
+    expect(inspection.oauthExists).toBe(true);
+    expect(inspection.accountEmail).toBe("agy.user@gmail.com");
+    expect(inspection.proposedProfileName).toBe("agy_user_gmail_com");
+    expect(inspection.oauthPath).toBe(path.join(pendingProfilePath, ".gemini", "antigravity-cli", "settings.json"));
+
+    const result = await saveOAuthLoginSession({
+      profilesRoot: root,
+      sessionId: "agy-save",
+      pendingProfilePath,
+      targetTool: "antigravity-cli"
+    });
+
+    expect(result.profileName).toBe("agy_user_gmail_com");
+    expect(result.nickname).toBe("agy.user@gmail.com");
+    expect(result.oauthPath).toBe(path.join(root, "agy_user_gmail_com", ".gemini", "antigravity-cli", "settings.json"));
+    await expect(stat(pendingProfilePath)).rejects.toThrow();
+  });
+
+  it("detects an Antigravity CLI login from the official credential store target without printing the payload", async () => {
+    const root = await makeTempRoot();
+    const pendingProfilePath = path.join(root, ".pending-login-agy-keyring");
+    await mkdir(pendingProfilePath, { recursive: true });
+    const credentialStore = createMemoryCredentialStore({
+      "gemini:antigravity": JSON.stringify({
+        token: {
+          access_token: "redacted-access",
+          refresh_token: "redacted-refresh"
+        },
+        auth_method: "consumer"
+      })
+    });
+
+    const inspection = await inspectOAuthLoginSession({
+      profilesRoot: root,
+      sessionId: "agy-keyring",
+      pendingProfilePath,
+      targetTool: "antigravity-cli",
+      credentialStore,
+      credentialTarget: "gemini:antigravity"
+    });
+
+    expect(inspection.oauthExists).toBe(true);
+    expect(inspection.oauthPath).toBe("gemini:antigravity");
+    expect(inspection.sha256).toBe(sha256(credentialStore.entries.get("gemini:antigravity") ?? ""));
+    expect(inspection.proposedProfileName).toMatch(/^antigravity-profile-[0-9a-f]{8}$/);
+    expect(inspection.proposedNickname).toBeUndefined();
+    expect(JSON.stringify(inspection)).not.toContain("redacted-access");
+    expect(JSON.stringify(inspection)).not.toContain("redacted-refresh");
+  });
+
+  it("saves an Antigravity CLI login by copying the official credential into the selected profile target", async () => {
+    const root = await makeTempRoot();
+    const pendingProfilePath = path.join(root, ".pending-login-agy-keyring-save");
+    await mkdir(pendingProfilePath, { recursive: true });
+    const payload = JSON.stringify({
+      token: {
+        access_token: "redacted-access",
+        refresh_token: "redacted-refresh"
+      },
+      auth_method: "consumer"
+    });
+    const credentialStore = createMemoryCredentialStore({
+      "gemini:antigravity": payload
+    });
+
+    const result = await saveOAuthLoginSession({
+      profilesRoot: root,
+      sessionId: "agy-keyring-save",
+      pendingProfilePath,
+      targetTool: "antigravity-cli",
+      profileName: "work-agy",
+      credentialStore,
+      credentialTarget: "gemini:antigravity",
+      getProfileCredentialTarget: (profileName) => `gemini-oauth-switcher:antigravity-cli:${profileName}`
+    });
+
+    expect(result.profileName).toBe("work-agy");
+    expect(result.oauthPath).toBe("gemini-oauth-switcher:antigravity-cli:work-agy");
+    expect(result.sha256).toBe(sha256(payload));
+    expect(credentialStore.entries.get("gemini-oauth-switcher:antigravity-cli:work-agy")).toBe(payload);
+    await expect(stat(path.join(root, "work-agy"))).resolves.toMatchObject({ isDirectory: expect.any(Function) });
+    await expect(stat(pendingProfilePath)).rejects.toThrow();
   });
 
   it("cleans up a pending login session when the user cancels", async () => {
@@ -363,14 +518,39 @@ describe("oauthLoginService", () => {
     expect(script).toContain("gemini --skip-trust");
   });
 
+  it("builds a PowerShell script for the Antigravity isolated-login flow", () => {
+    const script = buildPowerShellLoginScript({
+      profilePath: "C:\\Users\\jared\\.gemini-homes\\.pending-login-agy",
+      workingDirectory: "C:\\Users\\jared\\.gemini-homes",
+      targetTool: "antigravity-cli"
+    });
+
+    expect(script).toContain("$profile = 'C:\\Users\\jared\\.gemini-homes\\.pending-login-agy'");
+    expect(script).toContain("New-Item -ItemType Directory -Force -Path $profile");
+    expect(script).toContain("$env:USERPROFILE = $profile");
+    expect(script).toContain("$env:HOME = $profile");
+    expect(script).toContain("$env:APPDATA = Join-Path $profile 'AppData\\Roaming'");
+    expect(script).toContain("$env:LOCALAPPDATA = Join-Path $profile 'AppData\\Local'");
+    expect(script).toContain("Set-Location -LiteralPath $workspace");
+    expect(script).toContain("agy");
+    expect(script).not.toContain("$env:GEMINI_CLI_HOME");
+    expect(script).not.toContain("gemini --skip-trust");
+  });
+
   it("launches PowerShell through Windows start so Electron opens a visible console window", () => {
     const command = buildPowerShellLaunchCommand("Write-Output 'hello'");
 
     expect(command.file).toBe("cmd.exe");
     expect(command.args.slice(0, 4)).toEqual(["/d", "/c", "start", "Gemini OAuth Login"]);
-    expect(command.args).toContain("powershell.exe");
+    expect(command.args.some((arg) => arg === "powershell.exe" || arg === "pwsh.exe")).toBe(true);
     expect(command.args).toContain("-NoExit");
     expect(command.args).toContain("-EncodedCommand");
+  });
+
+  it("allows the PowerShell window title to match the login target", () => {
+    const command = buildPowerShellLaunchCommand("Write-Output 'hello'", "Antigravity CLI Login");
+
+    expect(command.args.slice(0, 4)).toEqual(["/d", "/c", "start", "Antigravity CLI Login"]);
   });
 });
 
