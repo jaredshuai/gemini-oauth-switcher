@@ -380,10 +380,12 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("oauthLogin:start", async (_event, rawTargetTool?: unknown) => {
     const settings = await readSettings(settingsPath());
+    const profilesRoot = getConfiguredProfilesRoot(settings);
     const target = getProfileTargetConfig(rawTargetTool ?? settings.selectedTool);
     const session = await createOAuthLoginSession({
-      profilesRoot: getConfiguredProfilesRoot(settings),
-      targetTool: target.tool
+      profilesRoot,
+      targetTool: target.tool,
+      ...getCredentialOptions(target, profilesRoot)
     });
     oauthLoginSessions.set(session.sessionId, session);
 
@@ -435,7 +437,10 @@ function registerIpcHandlers(): void {
       profilesRoot,
       sessionId: session.sessionId,
       pendingProfilePath: session.pendingProfilePath,
-      pidFilePath: session.pidFilePath
+      pidFilePath: session.pidFilePath,
+      credentialBackupTarget: session.credentialBackupTarget,
+      targetTool: session.targetTool,
+      ...getCredentialOptions(target, profilesRoot)
     }).catch(() => undefined);
     oauthLoginSessions.delete(session.sessionId);
 
@@ -446,16 +451,22 @@ function registerIpcHandlers(): void {
     const request = normalizeOAuthLoginCancelRequest(rawRequest);
     const session = oauthLoginSessions.get(request.sessionId);
     const settings = await readSettings(settingsPath());
+    const profilesRoot = getConfiguredProfilesRoot(settings);
     const pendingProfilePath = session?.pendingProfilePath ?? request.pendingProfilePath;
     if (!pendingProfilePath) {
       throw new Error("Login session was not found. Start a new login first.");
     }
 
+    const target = getProfileTargetConfig(session?.targetTool ?? settings.selectedTool);
     await cleanupOAuthLoginSession({
-      profilesRoot: getConfiguredProfilesRoot(settings),
+      profilesRoot,
       sessionId: request.sessionId,
       pendingProfilePath,
-      pidFilePath: session?.pidFilePath
+      pidFilePath: session?.pidFilePath,
+      credentialBackupTarget: session?.credentialBackupTarget,
+      targetTool: session?.targetTool ?? target.tool,
+      restorePreviousCredential: true,
+      ...getCredentialOptions(target, profilesRoot)
     });
     oauthLoginSessions.delete(request.sessionId);
   });
@@ -503,8 +514,12 @@ registerIpcHandlers();
 app.whenReady().then(async () => {
   createTray();
   const settings = await readSettings(settingsPath());
+  const profilesRoot = getConfiguredProfilesRoot(settings);
+  const antigravityTarget = getProfileTargetConfig("antigravity-cli");
   await cleanupStaleOAuthLoginSessions({
-    profilesRoot: getConfiguredProfilesRoot(settings)
+    profilesRoot,
+    credentialStore: nativeAntigravityCredentialStore,
+    credentialTarget: antigravityTarget.credentialTarget
   })
     .then(logStaleLoginCleanupResult)
     .catch((error: unknown) => {

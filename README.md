@@ -27,14 +27,14 @@ Gemini CLI profile 使用文件：
 C:\Users\<current-user>\.gemini\oauth_creds.json
 ```
 
-Antigravity CLI profile 仍使用同一个 `profilesRoot` 下的账号目录作为列表来源，但账号凭据不再以 `settings.json` 作为切换依据。Antigravity CLI 官方认证使用系统 keyring；本工具会把每个 profile 的 Antigravity 登录凭据保存为本应用自己的 Windows Credential Manager 项，切换时写回官方目标项：
+Antigravity CLI profile 仍使用同一个 `profilesRoot` 下的账号目录作为列表来源，但账号凭据不以 `settings.json` 作为切换依据。Antigravity CLI 官方认证使用 Windows Credential Manager；本工具通过 Win32 `CredReadW` / `CredWriteW` 原样读写其 UTF-8 CredentialBlob，把每个 profile 的凭据保存为本应用自己的 Credential Manager 项，切换时写回官方目标项：
 
 ```text
 official target: gemini:antigravity
 profile target:  gemini-oauth-switcher:antigravity-cli:<profile-id>
 ```
 
-新增 Antigravity 登录时，如果登录窗口产生了 `settings.json`，程序会保留它用于辅助识别账号；真正用于切换的是 Windows Credential Manager 中的登录凭据。
+该实现已在 Windows 11 + `agy` 1.1.1 上验证：`agy` 能从 `gemini:antigravity` 冷启动、静默刷新 token，并使用刷新后的凭据认证。新增 Antigravity 登录时，如果登录窗口产生了 `settings.json`，程序会保留它用于辅助识别账号；真正用于切换的是 Windows Credential Manager 中的登录凭据。
 
 ## 开发
 
@@ -81,8 +81,8 @@ Gemini CLI：
 Antigravity CLI：
 
 1. 校验 profile 对应的本应用 Credential Manager 项存在。
-2. 读取该凭据的 payload，但不展示、不打印。
-3. 写入官方 Credential Manager 目标 `gemini:antigravity`。
+2. 通过 Win32 API 读取原始 UTF-8 payload，但不展示、不打印。
+3. 原样写入官方 Credential Manager 目标 `gemini:antigravity`。
 4. 重新读取官方目标并计算 SHA256，确认与源凭据一致。
 
 ## 新增登录
@@ -102,6 +102,8 @@ gemini --skip-trust
 
 Antigravity CLI 模式：
 
+打开登录窗口前，程序会先把当前 `gemini:antigravity` 备份到临时 Credential Manager 项，然后清空官方目标，确保 `agy` 进入新账号 OAuth，而不是静默复用旧账号。
+
 ```powershell
 $env:USERPROFILE = $profile
 $env:HOME = $profile
@@ -114,13 +116,14 @@ Remove-Item Env:\GOOGLE_VERTEX_BASE_URL -ErrorAction SilentlyContinue
 agy
 ```
 
-完成浏览器登录后，回到窗口点击“重新检测”。Gemini 模式检测 OAuth 文件；Antigravity 模式优先检测官方 Credential Manager 目标 `gemini:antigravity`。点击“保存到账号列表”后，临时目录会改名为最终 profile 目录，并把凭据保存到该 profile 对应的本应用凭据项。
+完成浏览器登录后，回到窗口点击“重新检测”。Gemini 模式检测 OAuth 文件；Antigravity 模式检测官方 Credential Manager 目标 `gemini:antigravity`。点击“保存到账号列表”后，临时目录会改名为最终 profile 目录，把凭据保存到该 profile 对应的本应用凭据项，并保留新账号为当前账号。点击“取消”会关闭登录进程、恢复登录前的凭据并删除临时备份；应用下次启动时也会尝试恢复遗留登录会话的备份。
 
 ## 安全注意事项
 
 - 仓库 `.gitignore` 会忽略所有 `oauth_creds.json`，不要提交真实 OAuth 凭据。
 - 不要提交真实 Antigravity CLI `settings.json`。
 - 程序不会展示、解析到界面、打印或写入日志记录 OAuth/token payload。
+- Antigravity CredentialBlob 只在 Electron main process 和 Win32 API 调用内存中流转，不会经过 renderer、PowerShell stdout 或临时文件。
 - Renderer 不直接访问文件系统或 Credential Manager；文件扫描、hash、settings、路径打开、切换、删除、新增登录和用量查询都在 Electron main process 中执行。
 - 配置文件只保存 `profilesRoot`、窗口位置、`lastSelectedProfile`、昵称等非敏感信息。
 - Gemini 用量查询会使用 OAuth 文件中的 token 调 Google 官方接口，但不会展示、打印或保存 token 内容。
@@ -143,4 +146,4 @@ agy
 - Tailwind CSS
 - Vitest
 - Node `fs/promises`、`crypto`
-- `@napi-rs/keyring`
+- `koffi`（调用 Windows Credential Manager Win32 API）

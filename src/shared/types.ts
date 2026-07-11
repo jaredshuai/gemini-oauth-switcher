@@ -92,6 +92,7 @@ export interface OAuthLoginSession {
   targetTool?: TargetTool;
   pendingProfilePath: string;
   pidFilePath?: string;
+  credentialBackupTarget?: string;
   oauthPath: string;
   startedAt: number;
 }

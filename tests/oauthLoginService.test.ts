@@ -13,7 +13,10 @@ import {
   inspectOAuthLoginSession,
   saveOAuthLoginSession
 } from "../src/main/oauthLoginService";
-import type { CredentialStore } from "../src/main/antigravityCredentialService";
+import {
+  getAntigravityLoginBackupCredentialTarget,
+  type CredentialStore
+} from "../src/main/antigravityCredentialService";
 
 const tempRoots: string[] = [];
 
@@ -100,10 +103,15 @@ describe("oauthLoginService", () => {
     const root = await makeTempRoot();
     const launchedScripts: string[] = [];
     const launchedTitles: string[] = [];
+    const credentialStore = createMemoryCredentialStore({
+      "gemini:antigravity": "previous-secret"
+    });
 
     const session = await createOAuthLoginSession({
       profilesRoot: root,
       targetTool: "antigravity-cli",
+      credentialStore,
+      credentialTarget: "gemini:antigravity",
       launchPowerShell: async (script, title) => {
         launchedScripts.push(script);
         launchedTitles.push(title);
@@ -113,6 +121,9 @@ describe("oauthLoginService", () => {
     });
 
     expect(session.targetTool).toBe("antigravity-cli");
+    expect(session.credentialBackupTarget).toMatch(/^gemini-oauth-switcher:antigravity-cli:pending:/);
+    expect(credentialStore.entries.get(session.credentialBackupTarget ?? "")).toBe("previous-secret");
+    expect(credentialStore.entries.has("gemini:antigravity")).toBe(false);
     expect(session.oauthPath).toBe(path.join(session.pendingProfilePath, ".gemini", "antigravity-cli", "settings.json"));
     expect(launchedScripts).toHaveLength(1);
     expect(launchedTitles).toEqual(["Antigravity CLI Login"]);
@@ -123,6 +134,31 @@ describe("oauthLoginService", () => {
     expect(launchedScripts[0]).toContain("agy");
     expect(launchedScripts[0]).not.toContain("GEMINI_CLI_HOME");
     expect(launchedScripts[0]).not.toContain("gemini --skip-trust");
+  });
+
+  it("restores the previous Antigravity credential when launching the login window fails", async () => {
+    const root = await makeTempRoot();
+    const credentialStore = createMemoryCredentialStore({
+      "gemini:antigravity": "previous-secret"
+    });
+
+    await expect(
+      createOAuthLoginSession({
+        profilesRoot: root,
+        targetTool: "antigravity-cli",
+        credentialStore,
+        credentialTarget: "gemini:antigravity",
+        launchPowerShell: async () => {
+          throw new Error("launch failed");
+        },
+        now: () => new Date("2026-05-14T08:00:00.000Z"),
+        randomId: () => "launch-failed"
+      })
+    ).rejects.toThrow(/launch failed/);
+
+    expect(credentialStore.entries.get("gemini:antigravity")).toBe("previous-secret");
+    expect([...credentialStore.entries.keys()]).toEqual(["gemini:antigravity"]);
+    await expect(stat(path.join(root, ".pending-login-20260514-080000-launch-failed"))).rejects.toThrow();
   });
 
   it("detects the OAuth file and reports a duplicate profile name from the recognized email", async () => {
@@ -208,6 +244,7 @@ describe("oauthLoginService", () => {
   it("detects and saves an Antigravity CLI settings login as a direct child profile", async () => {
     const root = await makeTempRoot();
     const pendingProfilePath = path.join(root, ".pending-login-agy-save");
+    const credentialStore = createMemoryCredentialStore();
     await writeAntigravitySettings(pendingProfilePath, {
       account: {
         email: "Agy.User@Gmail.com"
@@ -219,7 +256,9 @@ describe("oauthLoginService", () => {
       profilesRoot: root,
       sessionId: "agy-save",
       pendingProfilePath,
-      targetTool: "antigravity-cli"
+      targetTool: "antigravity-cli",
+      credentialStore,
+      credentialTarget: "gemini:antigravity"
     });
 
     expect(inspection.oauthExists).toBe(true);
@@ -231,7 +270,9 @@ describe("oauthLoginService", () => {
       profilesRoot: root,
       sessionId: "agy-save",
       pendingProfilePath,
-      targetTool: "antigravity-cli"
+      targetTool: "antigravity-cli",
+      credentialStore,
+      credentialTarget: "gemini:antigravity"
     });
 
     expect(result.profileName).toBe("agy_user_gmail_com");
@@ -321,6 +362,59 @@ describe("oauthLoginService", () => {
     await expect(stat(pendingProfilePath)).rejects.toThrow();
   });
 
+  it("restores the previous Antigravity credential when a login session is cancelled", async () => {
+    const root = await makeTempRoot();
+    const sessionId = "cancel-agy";
+    const pendingProfilePath = path.join(root, `.pending-login-${sessionId}`);
+    const credentialBackupTarget = "gemini-oauth-switcher:antigravity-cli:pending:cancel-agy";
+    const credentialStore = createMemoryCredentialStore({
+      "gemini:antigravity": "new-secret",
+      [credentialBackupTarget]: "previous-secret"
+    });
+    await mkdir(pendingProfilePath, { recursive: true });
+
+    await cleanupOAuthLoginSession({
+      profilesRoot: root,
+      sessionId,
+      pendingProfilePath,
+      targetTool: "antigravity-cli",
+      credentialStore,
+      credentialTarget: "gemini:antigravity",
+      credentialBackupTarget,
+      restorePreviousCredential: true,
+      terminateProcessTree: async () => undefined
+    });
+
+    expect(credentialStore.entries.get("gemini:antigravity")).toBe("previous-secret");
+    expect(credentialStore.entries.has(credentialBackupTarget)).toBe(false);
+  });
+
+  it("keeps the newly saved Antigravity credential active while removing the login backup", async () => {
+    const root = await makeTempRoot();
+    const sessionId = "save-agy";
+    const pendingProfilePath = path.join(root, `.pending-login-${sessionId}`);
+    const credentialBackupTarget = "gemini-oauth-switcher:antigravity-cli:pending:save-agy";
+    const credentialStore = createMemoryCredentialStore({
+      "gemini:antigravity": "new-secret",
+      [credentialBackupTarget]: "previous-secret"
+    });
+    await mkdir(pendingProfilePath, { recursive: true });
+
+    await cleanupOAuthLoginSession({
+      profilesRoot: root,
+      sessionId,
+      pendingProfilePath,
+      targetTool: "antigravity-cli",
+      credentialStore,
+      credentialTarget: "gemini:antigravity",
+      credentialBackupTarget,
+      terminateProcessTree: async () => undefined
+    });
+
+    expect(credentialStore.entries.get("gemini:antigravity")).toBe("new-secret");
+    expect(credentialStore.entries.has(credentialBackupTarget)).toBe(false);
+  });
+
   it("cleans up only the pid file when a saved pending directory was already renamed away", async () => {
     const root = await makeTempRoot();
     const sessionId = "saved";
@@ -392,6 +486,33 @@ describe("oauthLoginService", () => {
     expect(result.removed).toEqual([".pending-login-stale-process", ".pending-login-stale-process.pid"]);
     expect(result.failed).toEqual([]);
     expect(result.skipped).toEqual([]);
+  });
+
+  it("restores an Antigravity credential backup while sweeping a stale login session", async () => {
+    const root = await makeTempRoot();
+    const sessionId = "stale-agy";
+    const pendingProfilePath = path.join(root, `.pending-login-${sessionId}`);
+    const credentialBackupTarget = getAntigravityLoginBackupCredentialTarget(root, sessionId);
+    const credentialStore = createMemoryCredentialStore({
+      "gemini:antigravity": "partial-login-secret",
+      [credentialBackupTarget]: "previous-secret"
+    });
+    await mkdir(pendingProfilePath, { recursive: true });
+    await touch(pendingProfilePath, new Date("2026-05-14T08:00:00.000Z"));
+
+    const result = await cleanupStaleOAuthLoginSessions({
+      profilesRoot: root,
+      olderThanMs: 60 * 60 * 1000,
+      nowMs: () => new Date("2026-05-14T10:00:00.000Z").getTime(),
+      credentialStore,
+      credentialTarget: "gemini:antigravity",
+      terminateProcessTree: async () => undefined
+    });
+
+    expect(result.removed).toEqual([`.pending-login-${sessionId}`]);
+    expect(result.failed).toEqual([]);
+    expect(credentialStore.entries.get("gemini:antigravity")).toBe("previous-secret");
+    expect(credentialStore.entries.has(credentialBackupTarget)).toBe(false);
   });
 
   it("keeps sweeping other stale login entries when one pending directory is busy", async () => {
