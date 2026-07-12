@@ -336,7 +336,8 @@ function registerIpcHandlers(): void {
     return listProfiles({
       profilesRoot,
       targetOAuthPath: target.targetPath,
-      profileFileRelativePath: target.profileFileRelativePath
+      profileFileRelativePath: target.profileFileRelativePath,
+      includeMissingProfiles: false
     });
   });
 
@@ -481,7 +482,8 @@ function registerIpcHandlers(): void {
     const profilesRoot = getConfiguredProfilesRoot(settings);
     const result = await listProfiles({
       profilesRoot,
-      targetOAuthPath: getDefaultTargetOAuthPath()
+      targetOAuthPath: getDefaultTargetOAuthPath(),
+      includeMissingProfiles: false
     });
 
     const usages = await Promise.all(
