@@ -703,12 +703,11 @@ export function App() {
   const isToolSwitchDisabled = isLoading || isProfileActionBusy || isSavingSettings || isUsageRefreshBusy;
 
   return (
-    <main className="min-h-screen bg-[#f7f3ea] text-neutral-950 antialiased">
+    <main className="app-parchment min-h-screen text-neutral-950 antialiased">
       <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 pb-6 pt-5">
-        <header className="flex items-center justify-between gap-4 border-b border-neutral-300/80 pb-3.5">
+        <header className="app-header flex items-center justify-between gap-4 border-b pb-3.5">
           <h1 className="flex shrink-0 items-center gap-1.5 text-xl font-semibold text-neutral-950">
             <TargetToolSwitch selectedTool={selectedTool} disabled={isToolSwitchDisabled} onChange={selectTargetTool} />
-            <span className="hidden font-normal text-neutral-400 min-[1180px]:inline">OAuth Switcher</span>
           </h1>
 
           <div className="flex items-center gap-2">
@@ -766,19 +765,19 @@ export function App() {
 
         <StatusBar status={status} visibility={statusVisibility} />
 
-        <section className="account-vault mt-4 overflow-hidden rounded-md bg-white">
-          <div className="flex items-center justify-between border-b border-neutral-200 bg-[#fbfaf6] px-5 py-3.5">
+        <section className="account-vault mt-4 overflow-hidden rounded-md">
+          <div className="parchment-section-header flex items-center justify-between border-b px-5 py-3.5">
             <div className="flex items-baseline gap-3">
               <h2 className="text-sm font-semibold text-neutral-950">账号库</h2>
               <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-neutral-400">
                 {isGeminiTool ? "Gemini profiles" : "Credential entries"}
               </span>
             </div>
-            <span className="inline-flex min-w-8 items-center justify-center rounded border border-neutral-200 bg-white px-2 py-1 font-mono text-[11px] font-semibold tabular-nums text-neutral-600">
+            <span className="parchment-count inline-flex min-w-8 items-center justify-center rounded border px-2 py-1 font-mono text-[11px] font-semibold tabular-nums text-neutral-600">
               {result.profiles.length.toString().padStart(2, "0")}
             </span>
           </div>
-          <div className="grid grid-cols-[minmax(260px,1fr)_320px_152px] items-center gap-3 border-b border-neutral-200 bg-neutral-50/70 px-5 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-400">
+          <div className="parchment-column-header grid grid-cols-[minmax(260px,1fr)_320px_152px] items-center gap-3 border-b px-5 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-500">
             <span>账号</span>
             <span>{isGeminiTool ? "用量" : "凭据状态"}</span>
             <span className="w-[6.5rem] text-left">操作</span>

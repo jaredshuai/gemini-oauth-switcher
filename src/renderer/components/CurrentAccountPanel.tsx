@@ -205,7 +205,7 @@ function RouteArrow({ active }: { active: boolean }) {
   return (
     <div className="relative flex items-center justify-center" aria-hidden="true">
       <span className={`absolute h-px w-full ${active ? "bg-emerald-400/35" : "bg-neutral-800"}`} />
-      <ArrowRight className={`relative h-3.5 w-3.5 bg-neutral-950 ${active ? "text-emerald-400" : "text-neutral-700"}`} />
+      <ArrowRight className={`relative h-3.5 w-3.5 bg-[#0e0c09] ${active ? "text-emerald-400" : "text-neutral-700"}`} />
     </div>
   );
 }

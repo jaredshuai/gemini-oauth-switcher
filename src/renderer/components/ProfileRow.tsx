@@ -49,10 +49,10 @@ export function ProfileRow({
   const AccountIcon = isGeminiTool ? FolderKey : KeyRound;
 
   return (
-    <div className={`profile-row relative grid grid-cols-[minmax(260px,1fr)_320px_152px] items-center gap-3 px-5 py-4 text-sm ${profile.isCurrent ? "profile-row-current bg-emerald-50/45 before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-emerald-500" : "bg-white"}`}>
+    <div className={`profile-row relative grid grid-cols-[minmax(260px,1fr)_320px_152px] items-center gap-3 px-5 py-4 text-sm ${profile.isCurrent ? "profile-row-current bg-emerald-50/35 before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-emerald-500" : "bg-transparent"}`}>
       <div className="flex min-w-0 items-start gap-3.5">
         <div
-          className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${profile.isCurrent ? "border-emerald-300 bg-emerald-100/70 text-emerald-700" : "border-neutral-200 bg-neutral-50 text-neutral-400"}`}
+          className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${profile.isCurrent ? "border-emerald-300 bg-emerald-100/70 text-emerald-700" : "border-[#d8cbb4] bg-[#fbf6e9] text-neutral-400"}`}
           title={profile.isCurrent ? "当前账号" : "可切换账号"}
         >
           <AccountIcon className="h-4 w-4" />
