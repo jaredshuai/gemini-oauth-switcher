@@ -100,15 +100,16 @@ export function getProfileKey(profile: ProfileInfo): string {
   return profile.id || profile.name;
 }
 
-export function describeUsageFailure(usage: ProfileUsageResult): string {
+export function describeUsageFailure(usage: ProfileUsageResult, targetTool: TargetTool = "gemini"): string {
+  const isAntigravity = targetTool === "antigravity-cli";
   if (usage.credentialStatus === "not_found") {
-    return "无 OAuth 文件";
+    return isAntigravity ? "无登录凭据" : "无 OAuth 文件";
   }
   if (usage.credentialStatus === "parse_error") {
-    return "OAuth 文件无法读取";
+    return isAntigravity ? "登录凭据无法读取" : "OAuth 文件无法读取";
   }
   if (usage.credentialStatus === "expired") {
-    return "登录已失效";
+    return isAntigravity ? "登录凭据已过期" : "登录已失效";
   }
   if (usage.error?.includes("HTTP 403")) {
     return "权限不足或账号不可用";

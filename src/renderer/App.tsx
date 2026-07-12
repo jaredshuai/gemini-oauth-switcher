@@ -608,43 +608,41 @@ export function App() {
     }
   }
 
-  async function refreshUsage(profileName: string) {
-    if (!isGeminiTool) {
-      return;
-    }
-    if (isRefreshingAllUsageRef.current || refreshingUsageProfilesRef.current.has(profileName)) {
+  async function refreshUsage(profile: ProfileInfo) {
+    const profileKey = getProfileKey(profile);
+    const displayName = getProfileDisplayName(profile, profileNicknames);
+    if (isRefreshingAllUsageRef.current || refreshingUsageProfilesRef.current.has(profileKey)) {
       return;
     }
 
-    refreshingUsageProfilesRef.current.add(profileName);
+    refreshingUsageProfilesRef.current.add(profileKey);
     setRefreshingUsageProfiles((current) => {
       const next = new Set(current);
-      next.add(profileName);
+      next.add(profileKey);
       return next;
     });
     try {
-      const usage = await getApi().refreshProfileUsage(profileName);
-      setUsageByProfile((current) => ({ ...current, [profileName]: usage }));
+      const usage = await getApi().refreshProfileUsage(profileKey, selectedTool);
+      setUsageByProfile((current) => ({ ...current, [profileKey]: usage }));
       setStatus({
         tone: usage.success ? "success" : "error",
-        text: usage.success ? `已查询 ${profileName} 的用量。` : `${profileName} 用量查询失败：${describeUsageFailure(usage)}`
+        text: usage.success
+          ? `已查询 ${displayName} 的用量。`
+          : `${displayName} 用量查询失败：${describeUsageFailure(usage, selectedTool)}`
       });
     } catch (error) {
       setStatus({ tone: "error", text: getErrorMessage(error) });
     } finally {
-      refreshingUsageProfilesRef.current.delete(profileName);
+      refreshingUsageProfilesRef.current.delete(profileKey);
       setRefreshingUsageProfiles((current) => {
         const next = new Set(current);
-        next.delete(profileName);
+        next.delete(profileKey);
         return next;
       });
     }
   }
 
   async function refreshAllUsage() {
-    if (!isGeminiTool) {
-      return;
-    }
     if (isRefreshingAllUsageRef.current || refreshingUsageProfilesRef.current.size > 0) {
       return;
     }
@@ -652,7 +650,7 @@ export function App() {
     isRefreshingAllUsageRef.current = true;
     setIsRefreshingAllUsage(true);
     try {
-      const usages = await getApi().refreshAllUsage();
+      const usages = await getApi().refreshAllUsage(selectedTool);
       const values = Object.values(usages);
       const successCount = values.filter((usage) => usage.success).length;
       const failedCount = values.filter((usage) => usage.credentialStatus !== "not_found" && !usage.success).length;
@@ -720,17 +718,15 @@ export function App() {
                 <RefreshCw className={isLoading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
                 <span className="hidden min-[1180px]:inline">刷新列表</span>
               </button>
-              {isGeminiTool ? (
-                <button
-                  className="tool-button"
-                  onClick={refreshAllUsage}
-                  disabled={isUsageRefreshBusy || isLoading || result.profiles.length === 0}
-                  title="查询所有账号的 Gemini 用量"
-                >
-                  <Activity className={isRefreshingAllUsage ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
-                  <span className="hidden min-[1180px]:inline">查询用量</span>
-                </button>
-              ) : null}
+              <button
+                className="tool-button"
+                onClick={refreshAllUsage}
+                disabled={isUsageRefreshBusy || isLoading || result.profiles.length === 0}
+                title={`查询所有账号的 ${toolLabels.name} 用量`}
+              >
+                <Activity className={isRefreshingAllUsage ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
+                <span className="hidden min-[1180px]:inline">查询用量</span>
+              </button>
               <button className="tool-button" onClick={openOAuthLoginDialog} title={`登录一个新的 ${toolLabels.name} profile`}>
                 <Plus className="h-4 w-4" />
                 新增登录
@@ -779,7 +775,7 @@ export function App() {
           </div>
           <div className="parchment-column-header grid grid-cols-[minmax(260px,1fr)_320px_152px] items-center gap-3 border-b px-5 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-500">
             <span>账号</span>
-            <span>{isGeminiTool ? "用量" : "凭据状态"}</span>
+            <span>用量</span>
             <span className="w-[6.5rem] text-left">操作</span>
           </div>
 
@@ -794,15 +790,15 @@ export function App() {
                   isDeleting={deletingProfile === getProfileKey(profile)}
                   isSwitchDisabled={isProfileActionBusy || isSavingSettings}
                   isDeleteDisabled={isProfileActionBusy || isSavingSettings}
-                  usage={usageByProfile[profile.name]}
+                  usage={usageByProfile[getProfileKey(profile)]}
                   nickname={profileNicknames[getProfileKey(profile)]}
-                  isRefreshingUsage={refreshingUsageProfiles.has(profile.name) || isRefreshingAllUsage}
+                  isRefreshingUsage={refreshingUsageProfiles.has(getProfileKey(profile)) || isRefreshingAllUsage}
                   onSwitch={() => switchToProfile(profile)}
                   onDelete={() => deleteProfile(profile)}
                   onCopyName={() => copyProfileName(profile.name)}
                   onCopyPath={() => copyProfilePath(profile)}
                   onSetNickname={() => openProfileNicknameEditor(profile)}
-                  onRefreshUsage={() => refreshUsage(profile.name)}
+                  onRefreshUsage={() => refreshUsage(profile)}
                 />
               ))}
             </div>

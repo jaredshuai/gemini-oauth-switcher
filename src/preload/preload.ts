@@ -12,8 +12,9 @@ const api: GeminiSwitcherApi = {
   inspectOAuthLogin: (sessionId: string) => ipcRenderer.invoke("oauthLogin:inspect", sessionId),
   saveOAuthLogin: (request: OAuthLoginSaveRequest) => ipcRenderer.invoke("oauthLogin:save", request),
   cancelOAuthLogin: (request: OAuthLoginCancelRequest) => ipcRenderer.invoke("oauthLogin:cancel", request),
-  refreshProfileUsage: (profileName: string) => ipcRenderer.invoke("profiles:usage:refresh", profileName),
-  refreshAllUsage: () => ipcRenderer.invoke("profiles:usage:refreshAll"),
+  refreshProfileUsage: (profileIdentifier: string, targetTool?: TargetTool) =>
+    ipcRenderer.invoke("profiles:usage:refresh", profileIdentifier, targetTool),
+  refreshAllUsage: (targetTool?: TargetTool) => ipcRenderer.invoke("profiles:usage:refreshAll", targetTool),
   getLocalDiagnostics: () => ipcRenderer.invoke("diagnostics:get"),
   selectDirectory: (defaultPath?: string) => ipcRenderer.invoke("path:selectDirectory", defaultPath),
   revealPath: (target: RevealTarget) => ipcRenderer.invoke("path:reveal", target)

@@ -1,5 +1,5 @@
 import { Clock, Copy, FolderKey, KeyRound, Pencil, RefreshCw, Shuffle, Trash2 } from "lucide-react";
-import type { ProfileInfo, ProfileUsageResult, TargetTool, UsageTier } from "../../shared/types";
+import type { ProfileInfo, ProfileUsageResult, TargetTool, UsageGroup, UsageTier } from "../../shared/types";
 import { TOOL_LABELS } from "../constants";
 import {
   clampPercentage,
@@ -97,11 +97,13 @@ export function ProfileRow({
           ) : null}
         </div>
       </div>
-      {isGeminiTool ? (
-        <UsageCell profile={profile} usage={usage} isRefreshing={isRefreshingUsage} onRefresh={onRefreshUsage} />
-      ) : (
-        <ProfileFileCell profile={profile} />
-      )}
+      <UsageCell
+        selectedTool={selectedTool}
+        profile={profile}
+        usage={usage}
+        isRefreshing={isRefreshingUsage}
+        onRefresh={onRefreshUsage}
+      />
       <div className="flex justify-start gap-2">
         <button className="switch-button" onClick={onSwitch} disabled={!profile.exists || profile.isCurrent || isSwitchDisabled}>
           <Shuffle className={isSwitching ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
@@ -122,18 +124,21 @@ export function ProfileRow({
 }
 
 function UsageCell({
+  selectedTool,
   profile,
   usage,
   isRefreshing,
   onRefresh
 }: {
+  selectedTool: TargetTool;
   profile: ProfileInfo;
   usage?: ProfileUsageResult;
   isRefreshing: boolean;
   onRefresh: () => void;
 }) {
+  const isAntigravity = selectedTool === "antigravity-cli";
   if (!profile.exists) {
-    return <div className="text-xs text-neutral-500">无 OAuth 文件</div>;
+    return <div className="text-xs text-neutral-500">{isAntigravity ? "无登录凭据" : "无 OAuth 文件"}</div>;
   }
 
   if (isRefreshing) {
@@ -148,7 +153,9 @@ function UsageCell({
   return (
     <div className="min-w-0">
       {usage ? (
-        <UsageSummary usage={usage} onRefresh={onRefresh} />
+        <UsageSummary selectedTool={selectedTool} usage={usage} onRefresh={onRefresh} />
+      ) : isAntigravity ? (
+        <AntigravityReadyState profile={profile} onRefresh={onRefresh} />
       ) : (
         <div className="flex items-center justify-start gap-3">
           <UsageRefreshButton label="查询用量" onRefresh={onRefresh} />
@@ -159,42 +166,50 @@ function UsageCell({
   );
 }
 
-function ProfileFileCell({ profile }: { profile: ProfileInfo }) {
-  if (!profile.exists) {
-    return <div className="text-xs text-neutral-500">无登录凭据</div>;
-  }
-
+function AntigravityReadyState({ profile, onRefresh }: { profile: ProfileInfo; onRefresh: () => void }) {
   return (
-    <div className="min-w-0 border-l border-neutral-200 pl-4">
-      <div className="flex items-center gap-2 text-xs font-semibold text-neutral-800">
-        <span className="flex h-5 w-5 items-center justify-center rounded bg-emerald-100 text-emerald-700">
-          <KeyRound className="h-3 w-3" />
-        </span>
-        凭据已就绪
-      </div>
-      {profile.updatedAtMs ? (
-        <div className="mt-1.5 flex items-center gap-1 font-mono text-[10px] text-neutral-500">
-          <Clock className="h-3 w-3" />
-          更新于 {formatProfileUpdatedTime(profile.updatedAtMs)}
+    <div className="flex min-w-0 items-center justify-between gap-3 border-l border-neutral-200 pl-4">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 text-xs font-semibold text-neutral-800">
+          <span className="flex h-5 w-5 items-center justify-center rounded bg-emerald-100 text-emerald-700">
+            <KeyRound className="h-3 w-3" />
+          </span>
+          凭据已就绪
         </div>
-      ) : null}
+        {profile.updatedAtMs ? (
+          <div className="mt-1.5 flex items-center gap-1 font-mono text-[10px] text-neutral-500">
+            <Clock className="h-3 w-3" />
+            更新于 {formatProfileUpdatedTime(profile.updatedAtMs)}
+          </div>
+        ) : null}
+      </div>
+      <UsageRefreshButton label="查询用量" onRefresh={onRefresh} />
     </div>
   );
 }
 
-function UsageSummary({ usage, onRefresh }: { usage: ProfileUsageResult; onRefresh: () => void }) {
+function UsageSummary({
+  selectedTool,
+  usage,
+  onRefresh
+}: {
+  selectedTool: TargetTool;
+  usage: ProfileUsageResult;
+  onRefresh: () => void;
+}) {
   if (!usage.success) {
     return (
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0 truncate text-xs font-semibold text-red-600" title={usage.error}>
-          {describeUsageFailure(usage)}
+          {describeUsageFailure(usage, selectedTool)}
         </div>
         <UsageRefreshButton label="重试" onRefresh={onRefresh} />
       </div>
     );
   }
 
-  if (usage.tiers.length === 0) {
+  const groups = usage.groups ?? [];
+  if (usage.tiers.length === 0 && groups.length === 0) {
     return (
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs text-neutral-500">暂无用量数据</span>
@@ -205,11 +220,19 @@ function UsageSummary({ usage, onRefresh }: { usage: ProfileUsageResult; onRefre
 
   return (
     <div className="min-w-0">
-      <div className="space-y-2">
-        {usage.tiers.map((tier) => (
-          <UsageTierBar key={tier.name} tier={tier} />
-        ))}
-      </div>
+      {groups.length > 0 ? (
+        <div className="grid grid-cols-2 gap-4">
+          {groups.map((group) => (
+            <UsageGroupBlock key={group.name} group={group} />
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {usage.tiers.map((tier) => (
+            <UsageTierBar key={tier.name} tier={tier} />
+          ))}
+        </div>
+      )}
       <div className="mt-1.5 flex items-center justify-between gap-2 whitespace-nowrap">
         <UsageRefreshButton label="重新查询" onRefresh={onRefresh} />
         {usage.queriedAt ? (
@@ -221,6 +244,43 @@ function UsageSummary({ usage, onRefresh }: { usage: ProfileUsageResult; onRefre
           <span />
         )}
       </div>
+    </div>
+  );
+}
+
+function UsageGroupBlock({ group }: { group: UsageGroup }) {
+  return (
+    <div className="min-w-0" title={group.description}>
+      <div className="mb-1.5 truncate font-mono text-[10px] font-semibold text-neutral-700">{group.label}</div>
+      <div className="space-y-1.5">
+        {group.tiers.map((tier) => (
+          <CompactUsageTierBar key={tier.name} tier={tier} groupLabel={group.label} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CompactUsageTierBar({ tier, groupLabel }: { tier: UsageTier; groupLabel: string }) {
+  const percentage = clampPercentage(tier.utilization);
+  const resetText = formatResetTime(tier.resetsAt);
+  const title = resetText ? `${groupLabel} ${tier.label} · ${percentage}% · ${resetText}` : `${groupLabel} ${tier.label} · ${percentage}%`;
+
+  return (
+    <div className="grid min-w-0 grid-cols-[20px_minmax(44px,1fr)_32px] items-center gap-1.5 font-mono text-[10px] leading-none text-neutral-700" title={title}>
+      <span>{tier.label}</span>
+      <div className="h-1.5 overflow-hidden rounded-full bg-neutral-200">
+        <div
+          className={`h-full rounded-full ${usageBarClass(tier.utilization)}`}
+          style={{ width: `${percentage}%` }}
+          role="progressbar"
+          aria-label={`${groupLabel} ${tier.label} ${percentage}%`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percentage}
+        />
+      </div>
+      <span className="text-right font-semibold text-neutral-800">{percentage}%</span>
     </div>
   );
 }

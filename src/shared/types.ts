@@ -59,11 +59,19 @@ export interface UsageTier {
   resetsAt?: string;
 }
 
+export interface UsageGroup {
+  name: string;
+  label: string;
+  description?: string;
+  tiers: UsageTier[];
+}
+
 export interface ProfileUsageResult {
   profileName: string;
   success: boolean;
   credentialStatus: CredentialStatus;
   tiers: UsageTier[];
+  groups?: UsageGroup[];
   error?: string;
   queriedAt?: number;
 }
@@ -160,8 +168,8 @@ export interface GeminiSwitcherApi {
   inspectOAuthLogin(sessionId: string): Promise<OAuthLoginInspectResult>;
   saveOAuthLogin(request: OAuthLoginSaveRequest): Promise<OAuthLoginSaveResult>;
   cancelOAuthLogin(request: OAuthLoginCancelRequest): Promise<void>;
-  refreshProfileUsage(profileName: string): Promise<ProfileUsageResult>;
-  refreshAllUsage(): Promise<Record<string, ProfileUsageResult>>;
+  refreshProfileUsage(profileIdentifier: string, targetTool?: TargetTool): Promise<ProfileUsageResult>;
+  refreshAllUsage(targetTool?: TargetTool): Promise<Record<string, ProfileUsageResult>>;
   getLocalDiagnostics(): Promise<LocalDiagnosticsResult>;
   selectDirectory(defaultPath?: string): Promise<string | undefined>;
   revealPath(target: RevealTarget): Promise<void>;

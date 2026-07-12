@@ -32,6 +32,7 @@ import { readSettings, saveSettings } from "./settings";
 import { collectLocalDiagnostics } from "./systemDiagnostics";
 import { startAutoUpdateChecks } from "./updateService";
 import { queryGeminiUsageFromOAuthFile } from "./usageService";
+import { queryAntigravityUsage } from "./antigravityUsageService";
 import { persistWindowBoundsBeforeClose, shouldHideWindowOnClose } from "./windowLifecycle";
 
 let mainWindow: BrowserWindow | undefined;
@@ -478,9 +479,24 @@ function registerIpcHandlers(): void {
     };
   });
 
-  ipcMain.handle("profiles:usage:refresh", async (_event, rawProfileName: unknown) => {
-    const profileName = normalizeProfileName(rawProfileName);
+  ipcMain.handle("profiles:usage:refresh", async (_event, rawProfileIdentifier: unknown, rawTargetTool?: unknown) => {
     const settings = await readSettings(settingsPath());
+    const target = getProfileTargetConfig(rawTargetTool ?? settings.selectedTool);
+    if (target.tool === "antigravity-cli") {
+      const profileId = normalizeProfileIdentifier(rawProfileIdentifier);
+      const profile = settings.antigravityProfiles?.find((candidate) => candidate.id === profileId);
+      if (!profile) {
+        throw new Error(`Antigravity profile does not exist: ${profileId}`);
+      }
+
+      return queryAntigravityUsage({
+        profileName: profile.name,
+        credentialTarget: getAntigravityProfileCredentialTarget(profile.id),
+        credentialStore: nativeAntigravityCredentialStore
+      });
+    }
+
+    const profileName = normalizeProfileName(rawProfileIdentifier);
     const profilesRoot = getConfiguredProfilesRoot(settings);
 
     return queryGeminiUsageFromOAuthFile({
@@ -489,8 +505,24 @@ function registerIpcHandlers(): void {
     });
   });
 
-  ipcMain.handle("profiles:usage:refreshAll", async () => {
+  ipcMain.handle("profiles:usage:refreshAll", async (_event, rawTargetTool?: unknown) => {
     const settings = await readSettings(settingsPath());
+    const target = getProfileTargetConfig(rawTargetTool ?? settings.selectedTool);
+    if (target.tool === "antigravity-cli") {
+      const usages = await Promise.all(
+        (settings.antigravityProfiles ?? []).map(async (profile) => [
+          profile.id,
+          await queryAntigravityUsage({
+            profileName: profile.name,
+            credentialTarget: getAntigravityProfileCredentialTarget(profile.id),
+            credentialStore: nativeAntigravityCredentialStore
+          })
+        ] as const)
+      );
+
+      return Object.fromEntries(usages);
+    }
+
     const profilesRoot = getConfiguredProfilesRoot(settings);
     const result = await listProfiles({
       profilesRoot,

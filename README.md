@@ -72,7 +72,7 @@ pnpm dist:win:portable
 - Agy 页面使用独立账号列表，不显示 Gemini profile 目录
 - 登记当前 Agy 登录，无需重新登录当前账号
 - 新增登录：打开隔离 PowerShell 登录窗口，成功后保存为新的 profile
-- Gemini CLI 用量查询
+- Gemini CLI 与 Antigravity CLI 用量查询
 - 打开 `profilesRoot` 和目标目录
 - Gemini profile 删除：移动到 Windows 回收站
 - Antigravity 账号删除：删除本应用账号登记及对应 Credential Manager 项
@@ -128,6 +128,13 @@ agy
 
 完成浏览器登录后，回到窗口点击“重新检测”。Gemini 模式检测 OAuth 文件并把临时目录改名为最终 profile 目录；Antigravity 模式检测官方 Credential Manager 目标，把非敏感账号元数据登记到 Agy 独立列表，并把凭据保存到随机稳定 ID 对应的应用凭据项。Agy 临时目录在保存后直接删除。点击“取消”会关闭登录进程、恢复登录前的凭据并删除临时备份；应用下次启动时也会尝试恢复遗留登录会话的备份。
 
+## 用量查询
+
+- Gemini 模式显示 Pro、Flash 和 Flash Lite 的已使用比例。
+- Antigravity 模式显示 Gemini 与 Claude / GPT 两个模型组的周限额和 5 小时限额。
+- Agy 查询直接使用各账号保存在 Credential Manager 中的凭据，不需要启动 Antigravity 桌面端，也不会切换当前账号。
+- Access token 过期时会在 main process 内临时刷新；刷新出的 token 不会写回配置或发送到 renderer。
+
 ## 安全注意事项
 
 - 仓库 `.gitignore` 会忽略所有 `oauth_creds.json`，不要提交真实 OAuth 凭据。
@@ -137,6 +144,7 @@ agy
 - Renderer 不直接访问文件系统或 Credential Manager；文件扫描、hash、settings、路径打开、切换、删除、新增登录和用量查询都在 Electron main process 中执行。
 - 配置文件只保存 `profilesRoot`、Agy 账号 ID/名称/邮箱、窗口位置、`lastSelectedProfile`、昵称等非敏感信息。
 - Gemini 用量查询会使用 OAuth 文件中的 token 调 Google 官方接口，但不会展示、打印或保存 token 内容。
+- Antigravity 用量查询会使用 Credential Manager 中的 token 调 Google 官方 quota 接口，token 仅在 main process 内存中使用。
 - Antigravity CLI 凭据由 Windows Credential Manager 保存；卸载应用不会自动删除用户的系统凭据。
 
 ## 打包
