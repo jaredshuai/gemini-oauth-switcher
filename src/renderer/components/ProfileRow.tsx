@@ -4,7 +4,6 @@ import { TOOL_LABELS } from "../constants";
 import {
   clampPercentage,
   describeUsageFailure,
-  formatProfileUpdatedTime,
   formatRelativeTime,
   formatResetTime,
   usageBarClass
@@ -141,7 +140,9 @@ function UsageCell({
     return <div className="text-xs text-neutral-500">{isAntigravity ? "无登录凭据" : "无 OAuth 文件"}</div>;
   }
 
-  if (isRefreshing) {
+  const isPending = isRefreshing || (isAntigravity && !usage);
+
+  if (isPending) {
     return (
       <div className="flex items-center gap-2 text-xs font-semibold text-neutral-600">
         <RefreshCw className="h-3.5 w-3.5 animate-spin" />
@@ -154,36 +155,12 @@ function UsageCell({
     <div className="min-w-0">
       {usage ? (
         <UsageSummary selectedTool={selectedTool} usage={usage} onRefresh={onRefresh} />
-      ) : isAntigravity ? (
-        <AntigravityReadyState profile={profile} onRefresh={onRefresh} />
       ) : (
         <div className="flex items-center justify-start gap-3">
           <UsageRefreshButton label="查询用量" onRefresh={onRefresh} />
           <span className="text-xs text-neutral-500">未查询</span>
         </div>
       )}
-    </div>
-  );
-}
-
-function AntigravityReadyState({ profile, onRefresh }: { profile: ProfileInfo; onRefresh: () => void }) {
-  return (
-    <div className="flex min-w-0 items-center justify-between gap-3 border-l border-neutral-200 pl-4">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2 text-xs font-semibold text-neutral-800">
-          <span className="flex h-5 w-5 items-center justify-center rounded bg-emerald-100 text-emerald-700">
-            <KeyRound className="h-3 w-3" />
-          </span>
-          凭据已就绪
-        </div>
-        {profile.updatedAtMs ? (
-          <div className="mt-1.5 flex items-center gap-1 font-mono text-[10px] text-neutral-500">
-            <Clock className="h-3 w-3" />
-            更新于 {formatProfileUpdatedTime(profile.updatedAtMs)}
-          </div>
-        ) : null}
-      </div>
-      <UsageRefreshButton label="查询用量" onRefresh={onRefresh} />
     </div>
   );
 }

@@ -71,6 +71,7 @@ export function App() {
   const loadProfilesRequestIdRef = useRef(0);
   const refreshingUsageProfilesRef = useRef<Set<string>>(new Set());
   const isRefreshingAllUsageRef = useRef(false);
+  const autoAntigravityUsageQueriedKeyRef = useRef<string>("");
 
   const currentProfile = useMemo(
     () => result.profiles.find((profile) => profile.isCurrent),
@@ -199,6 +200,24 @@ export function App() {
       window.clearTimeout(collapseTimer);
     };
   }, [status]);
+  useEffect(() => {
+    if (selectedTool !== "antigravity-cli") {
+      autoAntigravityUsageQueriedKeyRef.current = "";
+      return;
+    }
+    if (result.profiles.length === 0) {
+      return;
+    }
+    const profileSetKey = result.profiles
+      .map((profile) => getProfileKey(profile))
+      .sort()
+      .join("|");
+    if (profileSetKey === autoAntigravityUsageQueriedKeyRef.current) {
+      return;
+    }
+    autoAntigravityUsageQueriedKeyRef.current = profileSetKey;
+    void refreshAllUsage();
+  }, [selectedTool, result]);
 
   async function saveProfilesRoot() {
     if (profileActionInFlightRef.current || settingsActionInFlightRef.current) {
