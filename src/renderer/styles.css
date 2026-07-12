@@ -102,18 +102,6 @@ button:focus-visible {
   color: #5f3024;
 }
 
-.mode-loadout-active::after {
-  position: absolute;
-  right: 0.15rem;
-  bottom: -0.28rem;
-  left: 2.15rem;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(95, 48, 36, 0.7) 13%, rgba(95, 48, 36, 0.42) 82%, transparent);
-  content: "";
-  opacity: 0.78;
-  transform: rotate(-1deg);
-}
-
 .mode-loadout-active .mode-loadout-sigil {
   border: 2px double rgba(95, 48, 36, 0.86);
   box-shadow: 0 0 0 1px rgba(95, 48, 36, 0.12);
@@ -122,6 +110,11 @@ button:focus-visible {
 }
 
 .mode-loadout-active .mode-loadout-name {
+  padding: 0.05rem 0.18rem 0.38rem;
+  background-image: linear-gradient(90deg, transparent, rgba(95, 48, 36, 0.7) 13%, rgba(95, 48, 36, 0.42) 87%, transparent);
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  background-size: 100% 2px;
   font-size: 1.13rem;
   font-weight: 700;
   text-shadow: 0.4px 0 rgba(95, 48, 36, 0.24);
