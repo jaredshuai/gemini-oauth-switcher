@@ -1,4 +1,4 @@
-import { Swords } from "lucide-react";
+import { ArrowLeftRight } from "lucide-react";
 import type { TargetTool } from "../../shared/types";
 import { TOOL_LABELS } from "../constants";
 
@@ -31,7 +31,7 @@ export function TargetToolSwitch({
           </span>
         </span>
         <span className="mode-loadout-swap">
-          <Swords className="h-[18px] w-[18px]" />
+          <ArrowLeftRight className="h-[18px] w-[18px]" />
         </span>
         <span className="mode-loadout-slot mode-loadout-secondary">
           <span className="mode-loadout-sigil">II</span>
