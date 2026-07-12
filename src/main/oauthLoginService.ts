@@ -87,7 +87,7 @@ interface SaveOAuthLoginSessionOptions extends OAuthLoginSessionOptions {
   getProfileCredentialTarget?: (profileName: string) => string;
 }
 
-interface ParsedOAuthIdentity {
+export interface ParsedOAuthIdentity {
   accountEmail?: string;
 }
 
@@ -137,6 +137,7 @@ export async function createOAuthLoginSession(options: CreateOAuthLoginSessionOp
   return {
     sessionId,
     targetTool,
+    loginRoot: profilesRoot,
     pendingProfilePath,
     pidFilePath,
     credentialBackupTarget,
@@ -173,7 +174,7 @@ export async function inspectOAuthLoginSession(options: OAuthLoginSessionOptions
         hashCredentialPayload(credentialPayload ?? "")
       ] as const;
   const proposedBaseName = identity.accountEmail ?? `${targetTool === "antigravity-cli" ? "antigravity-profile" : "gemini-account"}-${sha256.slice(0, 8)}`;
-  const proposedProfileName = sanitizeProfileName(proposedBaseName);
+  const proposedProfileName = sanitizeOAuthProfileName(proposedBaseName);
   const conflictProfileName = await findConflictProfileName(profilesRoot, proposedProfileName, identity.accountEmail);
 
   return {
@@ -232,7 +233,7 @@ export async function saveOAuthLoginSession(options: SaveOAuthLoginSessionOption
   let savedOAuthPath = getLoginCredentialPath(targetProfilePath, targetTool);
   let savedHash = await fileExists(savedOAuthPath) ? await hashFile(savedOAuthPath) : inspection.sha256;
   if (credentialMode && credentialPayload) {
-    const profileCredentialTarget = (options.getProfileCredentialTarget ?? ((name: string) => getAntigravityProfileCredentialTarget(profilesRoot, name)))(
+    const profileCredentialTarget = (options.getProfileCredentialTarget ?? getAntigravityProfileCredentialTarget)(
       profileName
     );
     await credentialMode.store.set(profileCredentialTarget, credentialPayload);
@@ -476,7 +477,7 @@ async function readOAuthIdentity(oauthPath: string): Promise<ParsedOAuthIdentity
   }
 }
 
-function readOAuthIdentityFromText(value: string): ParsedOAuthIdentity {
+export function readOAuthIdentityFromText(value: string): ParsedOAuthIdentity {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
@@ -651,7 +652,7 @@ function normalizeEmail(value: string): string | undefined {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) ? trimmed : undefined;
 }
 
-function sanitizeProfileName(value: string): string {
+export function sanitizeOAuthProfileName(value: string): string {
   const sanitized = value
     .trim()
     .replace(/[^A-Za-z0-9_-]+/g, "_")

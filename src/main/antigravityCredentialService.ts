@@ -59,9 +59,8 @@ export const nativeAntigravityCredentialStore: CredentialStore = {
   }
 };
 
-export function getAntigravityProfileCredentialTarget(profilesRoot: string, profileName: string): string {
-  const id = createHash("sha256").update(`${profilesRoot}\0${profileName}`).digest("hex").slice(0, 32);
-  return `gemini-oauth-switcher:antigravity-cli:${id}`;
+export function getAntigravityProfileCredentialTarget(profileId: string): string {
+  return `gemini-oauth-switcher:antigravity-cli:${profileId}`;
 }
 
 export function getAntigravityLoginBackupCredentialTarget(profilesRoot: string, sessionId: string): string {
@@ -71,6 +70,20 @@ export function getAntigravityLoginBackupCredentialTarget(profilesRoot: string, 
 
 export function hashCredentialPayload(payload: string): string {
   return createHash("sha256").update(payload).digest("hex");
+}
+
+export function hashCredentialIdentity(payload: string): string {
+  try {
+    const parsed = JSON.parse(payload) as { token?: { refresh_token?: unknown } };
+    const refreshToken = parsed.token?.refresh_token;
+    if (typeof refreshToken === "string" && refreshToken) {
+      return createHash("sha256").update("refresh-token\0").update(refreshToken).digest("hex");
+    }
+  } catch {
+    // Fall back to the full payload for unknown credential formats.
+  }
+
+  return hashCredentialPayload(payload);
 }
 
 function getNativeCredentialStore(): CredentialStore {

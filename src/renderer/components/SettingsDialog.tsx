@@ -56,34 +56,38 @@ export function SettingsDialog({
         </div>
 
         <div className="pt-4">
-          <label className="text-sm font-semibold text-neutral-800" htmlFor="profiles-root">
-            账号目录
-          </label>
-          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-            <input
-              id="profiles-root"
-              className="min-w-0 flex-1 rounded-md border border-neutral-300 bg-white px-3 py-2 font-mono text-sm outline-none transition focus:border-neutral-800 focus:ring-2 focus:ring-neutral-800/10"
-              placeholder="默认 C:\\Users\\<current-user>\\.gemini-homes"
-              value={profilesRootDraft}
-              onChange={(event) => onProfilesRootChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !isSaving) {
-                  onSave();
-                }
-                if (event.key === "Escape") {
-                  onClose();
-                }
-              }}
-            />
-            <button className="tool-button" onClick={onSelectProfilesRoot} disabled={isSaving} title="选择账号目录">
-              <FolderOpen className="h-4 w-4" />
-              选择目录
-            </button>
-            <button className="primary-button" onClick={onSave} disabled={isSaving}>
-              <RefreshCw className={isSaving ? "h-4 w-4 animate-spin" : "hidden"} />
-              {isSaving ? "保存中..." : "保存并扫描"}
-            </button>
-          </div>
+          {selectedTool === "gemini" ? (
+            <>
+              <label className="text-sm font-semibold text-neutral-800" htmlFor="profiles-root">
+                Gemini 账号目录
+              </label>
+              <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                <input
+                  id="profiles-root"
+                  className="min-w-0 flex-1 rounded-md border border-neutral-300 bg-white px-3 py-2 font-mono text-sm outline-none transition focus:border-neutral-800 focus:ring-2 focus:ring-neutral-800/10"
+                  placeholder="默认 C:\\Users\\<current-user>\\.gemini-homes"
+                  value={profilesRootDraft}
+                  onChange={(event) => onProfilesRootChange(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !isSaving) {
+                      onSave();
+                    }
+                    if (event.key === "Escape") {
+                      onClose();
+                    }
+                  }}
+                />
+                <button className="tool-button" onClick={onSelectProfilesRoot} disabled={isSaving} title="选择账号目录">
+                  <FolderOpen className="h-4 w-4" />
+                  选择目录
+                </button>
+                <button className="primary-button" onClick={onSave} disabled={isSaving}>
+                  <RefreshCw className={isSaving ? "h-4 w-4 animate-spin" : "hidden"} />
+                  {isSaving ? "保存中..." : "保存并扫描"}
+                </button>
+              </div>
+            </>
+          ) : null}
 
           <div className="mt-5">
             <div className="text-sm font-semibold text-neutral-800">关闭窗口时</div>
@@ -136,10 +140,12 @@ export function SettingsDialog({
           {status ? <SettingsStatusBar status={status} /> : null}
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <button className="tool-button" onClick={() => onReveal("profilesRoot")} disabled={!profilesRoot} title="打开账号目录">
-              <FolderOpen className="h-4 w-4" />
-              打开账号目录
-            </button>
+            {selectedTool === "gemini" ? (
+              <button className="tool-button" onClick={() => onReveal("profilesRoot")} disabled={!profilesRoot} title="打开 Gemini 账号目录">
+                <FolderOpen className="h-4 w-4" />
+                打开 Gemini 账号目录
+              </button>
+            ) : null}
             <button className="tool-button" onClick={() => onReveal(toolLabels.targetReveal)} disabled={!targetGeminiDir} title={`打开 ${toolLabels.name} 目标目录`}>
               <FolderOpen className="h-4 w-4" />
               打开 {toolLabels.shortName} 目录

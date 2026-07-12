@@ -1,4 +1,4 @@
-import { Shuffle, TriangleAlert } from "lucide-react";
+import { Shuffle, TriangleAlert, UserPlus } from "lucide-react";
 import type { LastSwitchResult, LocalDiagnosticsResult, ProfileInfo, TargetTool } from "../../shared/types";
 import { TOOL_LABELS } from "../constants";
 import { formatSwitchRelativeTime } from "../utils";
@@ -10,7 +10,9 @@ export function CurrentAccountPanel({
   hasUnmatchedTarget,
   hasTargetOAuth,
   lastSwitch,
-  localDiagnostics
+  localDiagnostics,
+  isRegisteringCurrent,
+  onRegisterCurrent
 }: {
   selectedTool: TargetTool;
   currentProfile?: ProfileInfo;
@@ -19,6 +21,8 @@ export function CurrentAccountPanel({
   hasTargetOAuth: boolean;
   lastSwitch?: LastSwitchResult;
   localDiagnostics?: LocalDiagnosticsResult;
+  isRegisteringCurrent: boolean;
+  onRegisterCurrent: () => void;
 }) {
   const toolLabels = TOOL_LABELS[selectedTool];
   const validationText = currentProfile
@@ -26,7 +30,11 @@ export function CurrentAccountPanel({
     : hasUnmatchedTarget
       ? `${toolLabels.targetLabel} 存在，但不属于账号列表`
       : `${toolLabels.targetLabel} 未设置`;
-  const nextStepText = currentProfile ? `新开 PowerShell 后运行 ${toolLabels.command} 即使用该${toolLabels.fileLabel}` : "从下方列表选择账号并点击切换";
+  const nextStepText = currentProfile
+    ? `新开 PowerShell 后运行 ${toolLabels.command} 即使用该${toolLabels.fileLabel}`
+    : selectedTool === "antigravity-cli" && hasUnmatchedTarget
+      ? "点击登记当前账号，或通过新增登录添加其他账号"
+      : "从下方列表选择账号并点击切换";
 
   return (
     <section className="py-3.5">
@@ -59,7 +67,7 @@ export function CurrentAccountPanel({
                 </div>
                 {displayName !== currentProfile.name ? (
                   <div className="mt-1 truncate font-mono text-xs text-neutral-400" title={currentProfile.name}>
-                    目录名：{currentProfile.name}
+                    {selectedTool === "gemini" ? "目录名" : "账号名称"}：{currentProfile.name}
                   </div>
                 ) : null}
               </>
@@ -76,6 +84,16 @@ export function CurrentAccountPanel({
               <span>&gt;_</span>
               <span>{nextStepText}</span>
             </div>
+            {selectedTool === "antigravity-cli" && hasUnmatchedTarget ? (
+              <button
+                className="mt-3 inline-flex items-center gap-2 rounded-md border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs font-semibold text-amber-100 transition hover:bg-amber-300/15 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={onRegisterCurrent}
+                disabled={isRegisteringCurrent}
+              >
+                <UserPlus className={isRegisteringCurrent ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
+                {isRegisteringCurrent ? "正在登记" : "登记当前账号"}
+              </button>
+            ) : null}
           </div>
 
           <SwitchReceiptPanel

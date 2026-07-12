@@ -9,6 +9,14 @@ export type TrayBehavior = "exit" | "minimize_to_tray";
 export type TargetTool = "gemini" | "antigravity-cli";
 export type RevealTarget = "profilesRoot" | "targetGeminiDir" | "targetAntigravityCliDir";
 
+export interface AntigravityProfileRecord {
+  id: string;
+  name: string;
+  accountEmail?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface AppSettings {
   profilesRoot: string;
   windowBounds?: WindowBounds;
@@ -18,6 +26,7 @@ export interface AppSettings {
   lastSelectedProfile?: string;
   lastSwitch?: LastSwitchResult;
   profileNicknames?: Record<string, string>;
+  antigravityProfiles?: AntigravityProfileRecord[];
 }
 
 export interface LastSwitchResult {
@@ -28,7 +37,9 @@ export interface LastSwitchResult {
 }
 
 export interface ProfileInfo {
+  id?: string;
   name: string;
+  accountEmail?: string;
   profilePath: string;
   oauthPath: string;
   exists: boolean;
@@ -90,6 +101,7 @@ export interface DeleteProfileResult {
 export interface OAuthLoginSession {
   sessionId: string;
   targetTool?: TargetTool;
+  loginRoot: string;
   pendingProfilePath: string;
   pidFilePath?: string;
   credentialBackupTarget?: string;
@@ -123,6 +135,7 @@ export interface OAuthLoginSaveRequest {
 export interface OAuthLoginSaveResult {
   sessionId: string;
   targetTool?: TargetTool;
+  profileId?: string;
   profileName: string;
   nickname?: string;
   profilePath: string;
@@ -141,7 +154,8 @@ export interface GeminiSwitcherApi {
   saveSettings(settings: Partial<AppSettings>): Promise<AppSettings>;
   listProfiles(targetTool?: TargetTool): Promise<ProfileListResult>;
   switchProfile(profileName: string, targetTool?: TargetTool): Promise<SwitchProfileResult>;
-  deleteProfile(profileName: string): Promise<DeleteProfileResult>;
+  deleteProfile(profileIdentifier: string, targetTool?: TargetTool): Promise<DeleteProfileResult>;
+  registerCurrentAntigravity(): Promise<OAuthLoginSaveResult>;
   startOAuthLogin(targetTool?: TargetTool): Promise<OAuthLoginSession>;
   inspectOAuthLogin(sessionId: string): Promise<OAuthLoginInspectResult>;
   saveOAuthLogin(request: OAuthLoginSaveRequest): Promise<OAuthLoginSaveResult>;

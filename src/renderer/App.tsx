@@ -22,7 +22,7 @@ import { StatusBar } from "./components/StatusBar";
 import { TargetToolSwitch } from "./components/TargetToolSwitch";
 import { emptyResult, TOOL_LABELS } from "./constants";
 import type { StatusMessage, StatusVisibility } from "./types";
-import { copyText, describeUsageFailure, getApi, getErrorMessage, getProfileDisplayName } from "./utils";
+import { copyText, describeUsageFailure, getApi, getErrorMessage, getProfileDisplayName, getProfileKey } from "./utils";
 
 export function App() {
   const [settings, setSettings] = useState<AppSettings>({ profilesRoot: "" });
@@ -63,6 +63,7 @@ export function App() {
   const [isInspectingOAuthLogin, setIsInspectingOAuthLogin] = useState(false);
   const [isSavingOAuthLogin, setIsSavingOAuthLogin] = useState(false);
   const [isCancellingOAuthLogin, setIsCancellingOAuthLogin] = useState(false);
+  const [isRegisteringCurrentAntigravity, setIsRegisteringCurrentAntigravity] = useState(false);
   const [statusVisibility, setStatusVisibility] = useState<StatusVisibility>("visible");
   const [, setRelativeTimeTick] = useState(0);
   const profileActionInFlightRef = useRef(false);
@@ -95,10 +96,12 @@ export function App() {
       setResult(nextResult);
       setStatus({
         tone: "idle",
-        text: nextResult.profilesRoot
-          ? `已找到 ${nextResult.profiles.length} 个账号目录。`
-          : "默认扫描当前用户 home 下的 .gemini-homes。",
-        autoFade: Boolean(nextResult.profilesRoot)
+        text: targetTool === "antigravity-cli"
+          ? `已登记 ${nextResult.profiles.length} 个 Antigravity 账号。`
+          : nextResult.profilesRoot
+            ? `已找到 ${nextResult.profiles.length} 个账号目录。`
+            : "默认扫描当前用户 home 下的 .gemini-homes。",
+        autoFade: targetTool === "antigravity-cli" || Boolean(nextResult.profilesRoot)
       });
       return nextResult;
     } catch (error) {
@@ -312,9 +315,10 @@ export function App() {
     }
 
     profileActionInFlightRef.current = true;
-    setSwitchingProfile(profile.name);
+    const profileKey = getProfileKey(profile);
+    setSwitchingProfile(profileKey);
     try {
-      await getApi().switchProfile(profile.name, selectedTool);
+      await getApi().switchProfile(profileKey, selectedTool);
       const nextSettings = await getApi().getSettings();
       setSettings(nextSettings);
       await loadProfiles(selectedTool);
@@ -332,16 +336,16 @@ export function App() {
   }
 
   async function deleteProfile(profile: ProfileInfo) {
-    if (!isGeminiTool) {
-      setStatus({ tone: "error", text: "Antigravity CLI 模式不会删除共享 profile 目录。" });
-      return;
-    }
     if (profile.isCurrent) {
       setStatus({ tone: "error", text: "不能删除当前正在使用的账号。请先切换到其他账号。" });
       return;
     }
 
-    const confirmed = window.confirm(`删除 profile「${profile.name}」？\n\n会把这个目录移到 Windows 回收站：\n${profile.profilePath}`);
+    const confirmed = window.confirm(
+      isGeminiTool
+        ? `删除 profile「${profile.name}」？\n\n会把这个目录移到 Windows 回收站：\n${profile.profilePath}`
+        : `删除 Antigravity 账号「${getProfileDisplayName(profile, profileNicknames)}」？\n\n会删除本应用保存的切换凭据，不会影响任何 Gemini 账号目录。`
+    );
     if (!confirmed) {
       return;
     }
@@ -350,11 +354,12 @@ export function App() {
     }
 
     profileActionInFlightRef.current = true;
-    setDeletingProfile(profile.name);
+    const profileKey = getProfileKey(profile);
+    setDeletingProfile(profileKey);
     try {
-      await getApi().deleteProfile(profile.name);
+      await getApi().deleteProfile(profileKey, selectedTool);
       const nextNicknames = { ...profileNicknames };
-      delete nextNicknames[profile.name];
+      delete nextNicknames[profileKey];
       const nextSettings = await getApi().saveSettings({ profileNicknames: nextNicknames });
       setSettings(nextSettings);
       setUsageByProfile((current) => {
@@ -363,11 +368,36 @@ export function App() {
         return next;
       });
       await loadProfiles(selectedTool);
-      setStatus({ tone: "success", text: `已将 ${profile.name} 移到回收站。` });
+      setStatus({
+        tone: "success",
+        text: isGeminiTool ? `已将 ${profile.name} 移到回收站。` : `已删除 Antigravity 账号 ${profile.name}。`
+      });
     } catch (error) {
       setStatus({ tone: "error", text: getErrorMessage(error) });
     } finally {
       setDeletingProfile(undefined);
+      profileActionInFlightRef.current = false;
+    }
+  }
+
+  async function registerCurrentAntigravity() {
+    if (isGeminiTool || !result.targetHash || currentProfile || profileActionInFlightRef.current) {
+      return;
+    }
+
+    profileActionInFlightRef.current = true;
+    setIsRegisteringCurrentAntigravity(true);
+    setStatus({ tone: "idle", text: "正在登记当前 Antigravity 账号..." });
+    try {
+      const registered = await getApi().registerCurrentAntigravity();
+      const nextSettings = await getApi().getSettings();
+      setSettings(nextSettings);
+      await loadProfiles("antigravity-cli");
+      setStatus({ tone: "success", text: `已登记当前账号 ${registered.nickname || registered.profileName}。` });
+    } catch (error) {
+      setStatus({ tone: "error", text: getErrorMessage(error) });
+    } finally {
+      setIsRegisteringCurrentAntigravity(false);
       profileActionInFlightRef.current = false;
     }
   }
@@ -391,7 +421,7 @@ export function App() {
 
   function openProfileNicknameEditor(profile: ProfileInfo) {
     setNicknameEditorProfile(profile);
-    setNicknameDraft(profileNicknames[profile.name] ?? "");
+    setNicknameDraft(profileNicknames[getProfileKey(profile)] ?? "");
   }
 
   async function saveProfileNickname() {
@@ -404,12 +434,13 @@ export function App() {
     }
 
     const profile = nicknameEditorProfile;
+    const profileKey = getProfileKey(profile);
     const trimmed = nicknameDraft.trim();
     const nextNicknames = { ...profileNicknames };
     if (trimmed) {
-      nextNicknames[profile.name] = trimmed;
+      nextNicknames[profileKey] = trimmed;
     } else {
-      delete nextNicknames[profile.name];
+      delete nextNicknames[profileKey];
     }
 
     setIsSavingNickname(true);
@@ -677,7 +708,7 @@ export function App() {
         <header className="flex items-center justify-between gap-4 border-b border-neutral-300/80 pb-3">
           <h1 className="flex shrink-0 items-center gap-1.5 text-xl font-semibold text-neutral-950">
             <TargetToolSwitch selectedTool={selectedTool} disabled={isToolSwitchDisabled} onChange={selectTargetTool} />
-            <span className="font-normal text-neutral-400">OAuth Switcher</span>
+            <span className="hidden font-normal text-neutral-400 min-[1180px]:inline">OAuth Switcher</span>
           </h1>
 
           <div className="flex items-center gap-2">
@@ -688,7 +719,7 @@ export function App() {
                 title="重新扫描账号列表"
               >
                 <RefreshCw className={isLoading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-                刷新列表
+                <span className="hidden min-[1180px]:inline">刷新列表</span>
               </button>
               {isGeminiTool ? (
                 <button
@@ -698,7 +729,7 @@ export function App() {
                   title="查询所有账号的 Gemini 用量"
                 >
                   <Activity className={isRefreshingAllUsage ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
-                  查询用量
+                  <span className="hidden min-[1180px]:inline">查询用量</span>
                 </button>
               ) : null}
               <button className="tool-button" onClick={openOAuthLoginDialog} title={`登录一个新的 ${toolLabels.name} profile`}>
@@ -716,7 +747,7 @@ export function App() {
                 title="打开设置"
               >
                 <Settings className="h-4 w-4" />
-                设置
+                <span className="hidden min-[1180px]:inline">设置</span>
               </button>
           </div>
         </header>
@@ -729,6 +760,8 @@ export function App() {
           hasTargetOAuth={Boolean(result.targetHash)}
           lastSwitch={visibleLastSwitch}
           localDiagnostics={localDiagnostics}
+          isRegisteringCurrent={isRegisteringCurrentAntigravity}
+          onRegisterCurrent={registerCurrentAntigravity}
         />
 
         <StatusBar status={status} visibility={statusVisibility} />
@@ -744,15 +777,15 @@ export function App() {
             <div className="divide-y divide-neutral-200">
               {result.profiles.map((profile) => (
                 <ProfileRow
-                  key={profile.name}
+                  key={getProfileKey(profile)}
                   selectedTool={selectedTool}
                   profile={profile}
-                  isSwitching={switchingProfile === profile.name}
-                  isDeleting={deletingProfile === profile.name}
+                  isSwitching={switchingProfile === getProfileKey(profile)}
+                  isDeleting={deletingProfile === getProfileKey(profile)}
                   isSwitchDisabled={isProfileActionBusy || isSavingSettings}
                   isDeleteDisabled={isProfileActionBusy || isSavingSettings}
                   usage={usageByProfile[profile.name]}
-                  nickname={profileNicknames[profile.name]}
+                  nickname={profileNicknames[getProfileKey(profile)]}
                   isRefreshingUsage={refreshingUsageProfiles.has(profile.name) || isRefreshingAllUsage}
                   onSwitch={() => switchToProfile(profile)}
                   onDelete={() => deleteProfile(profile)}
@@ -765,7 +798,9 @@ export function App() {
             </div>
           ) : (
             <div className="px-4 py-12 text-center text-sm text-neutral-500">
-              {isLoading ? "正在扫描 profile..." : "还没有可显示的 profile。"}
+              {isLoading
+                ? isGeminiTool ? "正在扫描 profile..." : "正在读取 Antigravity 账号..."
+                : isGeminiTool ? "还没有可显示的 profile。" : "还没有登记 Antigravity 账号。可以登记当前账号，或点击新增登录。"}
             </div>
           )}
         </section>

@@ -56,7 +56,7 @@ export function ProfileRow({
         />
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-1.5">
-            <span className="min-w-0 truncate font-semibold text-neutral-950" title={profile.oauthPath}>
+            <span className="min-w-0 truncate font-semibold text-neutral-950" title={isGeminiTool ? profile.oauthPath : profile.name}>
               {displayName}
             </span>
             <button className="copy-icon-button" onClick={onCopyName} aria-label={`复制 ${profile.name}`} title="复制完整 profile 名称">
@@ -73,7 +73,7 @@ export function ProfileRow({
               {profile.name}
             </div>
           ) : null}
-          {profile.oauthPath ? (
+          {isGeminiTool && profile.oauthPath ? (
             <div className="mt-1 flex min-w-0 items-center gap-1">
               <span className="truncate font-mono text-[11px] text-neutral-400" title={profile.oauthPath}>
                 {profile.oauthPath}
@@ -103,17 +103,15 @@ export function ProfileRow({
           <Shuffle className={isSwitching ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
           {profile.isCurrent ? "已使用" : isSwitching ? "切换中" : "切换"}
         </button>
-        {isGeminiTool ? (
-          <button
-            className="danger-icon-button"
-            onClick={onDelete}
-            disabled={profile.isCurrent || isDeleteDisabled}
-            aria-label={`删除 ${profile.name}`}
-            title={profile.isCurrent ? "当前账号不能删除，请先切换到其他账号" : "删除 profile 到回收站"}
-          >
-            <Trash2 className={isDeleting ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
-          </button>
-        ) : null}
+        <button
+          className="danger-icon-button"
+          onClick={onDelete}
+          disabled={profile.isCurrent || isDeleteDisabled}
+          aria-label={`删除 ${profile.name}`}
+          title={profile.isCurrent ? "当前账号不能删除，请先切换到其他账号" : isGeminiTool ? "删除 profile 到回收站" : "删除 Antigravity 账号"}
+        >
+          <Trash2 className={isDeleting ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
+        </button>
       </div>
     </div>
   );
