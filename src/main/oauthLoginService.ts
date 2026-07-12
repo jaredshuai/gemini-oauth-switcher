@@ -177,13 +177,17 @@ export async function inspectOAuthLoginSession(options: OAuthLoginSessionOptions
     };
   }
 
-  const [oauthStat, identity, sha256] = oauthExists
+  const [oauthStat, fileIdentity, fileHash] = oauthExists
     ? await Promise.all([stat(oauthPath), readOAuthIdentity(oauthPath), hashFile(oauthPath)])
-    : [
-        await stat(pendingProfilePath),
-        await (options.resolveIdentity ?? resolveOAuthIdentityFromText)(credentialPayload ?? ""),
-        hashCredentialPayload(credentialPayload ?? "")
-      ] as const;
+    : [await stat(pendingProfilePath), {}, undefined] as const;
+  const credentialIdentity = credentialPayload && !fileIdentity.accountEmail
+    ? await (options.resolveIdentity ?? resolveOAuthIdentityFromText)(credentialPayload)
+    : undefined;
+  const identity = fileIdentity.accountEmail ? fileIdentity : (credentialIdentity ?? {});
+  const sha256 = credentialPayload ? hashCredentialPayload(credentialPayload) : fileHash;
+  if (!sha256) {
+    throw new Error("OAuth credential hash is unavailable.");
+  }
   const proposedBaseName = identity.accountEmail ?? `${targetTool === "antigravity-cli" ? "antigravity-profile" : "gemini-account"}-${sha256.slice(0, 8)}`;
   const proposedProfileName = sanitizeOAuthProfileName(proposedBaseName);
   const conflictProfileName = await findConflictProfileName(profilesRoot, proposedProfileName, identity.accountEmail);

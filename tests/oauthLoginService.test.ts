@@ -345,6 +345,38 @@ describe("oauthLoginService", () => {
     await expect(stat(pendingProfilePath)).rejects.toThrow();
   });
 
+  it("resolves the Antigravity account from the credential when settings exist without an email", async () => {
+    const root = await makeTempRoot();
+    const pendingProfilePath = path.join(root, ".pending-login-agy-settings-without-email");
+    await writeAntigravitySettings(pendingProfilePath, { trustedFolders: [] });
+    const credentialPayload = JSON.stringify({
+      token: {
+        access_token: "redacted-access",
+        refresh_token: "redacted-refresh"
+      }
+    });
+    const credentialStore = createMemoryCredentialStore({
+      "gemini:antigravity": credentialPayload
+    });
+
+    const inspection = await inspectOAuthLoginSession({
+      profilesRoot: root,
+      sessionId: "agy-settings-without-email",
+      pendingProfilePath,
+      targetTool: "antigravity-cli",
+      credentialStore,
+      credentialTarget: "gemini:antigravity",
+      resolveIdentity: async (payload) => {
+        expect(payload).toBe(credentialPayload);
+        return { accountEmail: "agy.user@gmail.com" };
+      }
+    });
+
+    expect(inspection.accountEmail).toBe("agy.user@gmail.com");
+    expect(inspection.proposedProfileName).toBe("agy_user_gmail_com");
+    expect(inspection.sha256).toBe(sha256(credentialPayload));
+  });
+
   it("detects an Antigravity CLI login from the official credential store target without printing the payload", async () => {
     const root = await makeTempRoot();
     const pendingProfilePath = path.join(root, ".pending-login-agy-keyring");
