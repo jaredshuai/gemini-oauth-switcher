@@ -43,7 +43,8 @@ export function ProfileRow({
   onSetNickname: () => void;
   onRefreshUsage: () => void;
 }) {
-  const displayName = nickname || profile.name;
+  const displayName = nickname || profile.accountEmail || profile.name;
+  const hasAlternateDisplayName = displayName !== profile.name;
   const isGeminiTool = selectedTool === "gemini";
   const toolLabels = TOOL_LABELS[selectedTool];
   const AccountIcon = isGeminiTool ? FolderKey : KeyRound;
@@ -71,7 +72,7 @@ export function ProfileRow({
             {profile.isCurrent ? <span className="status-pill ml-1 bg-emerald-100 text-emerald-800">当前</span> : null}
             {!profile.exists ? <span className="status-pill bg-amber-100 text-amber-800">{toolLabels.missingLabel}</span> : null}
           </div>
-          {nickname ? (
+          {hasAlternateDisplayName ? (
             <div className="mt-1 truncate font-mono text-[10px] tracking-[0.04em] text-neutral-500" title={profile.name}>
               {profile.name}
             </div>

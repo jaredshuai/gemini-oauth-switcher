@@ -20,6 +20,16 @@ interface RegisterAntigravityProfileOptions extends AntigravityProfileOptions {
   now?: () => number;
 }
 
+interface ResolveCurrentAntigravityProfileIdentityOptions extends AntigravityProfileOptions {
+  resolveIdentity: (payload: string) => Promise<{ accountEmail?: string }>;
+  now?: () => number;
+}
+
+export interface ResolveCurrentAntigravityProfileIdentityResult {
+  profiles: AntigravityProfileRecord[];
+  changed: boolean;
+}
+
 const credentialOperationQueues = new Map<string, Promise<unknown>>();
 
 export async function listAntigravityProfiles(options: AntigravityProfileOptions): Promise<ProfileListResult> {
@@ -63,6 +73,50 @@ export async function listAntigravityProfiles(options: AntigravityProfileOptions
     targetHash,
     profiles
   };
+}
+
+export async function resolveCurrentAntigravityProfileIdentity(
+  options: ResolveCurrentAntigravityProfileIdentityOptions
+): Promise<ResolveCurrentAntigravityProfileIdentityResult> {
+  const profiles = options.profiles.map(sanitizeRecord);
+  if (profiles.every((profile) => profile.accountEmail)) {
+    return { profiles, changed: false };
+  }
+
+  const credentialTarget = options.credentialTarget ?? ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET;
+  const targetPayload = await options.credentialStore.get(credentialTarget);
+  if (!targetPayload) {
+    return { profiles, changed: false };
+  }
+
+  const targetIdentity = hashCredentialIdentity(targetPayload);
+  for (const profile of profiles) {
+    if (profile.accountEmail) {
+      continue;
+    }
+
+    const profilePayload = await options.credentialStore.get(getAntigravityProfileCredentialTarget(profile.id));
+    if (!profilePayload || hashCredentialIdentity(profilePayload) !== targetIdentity) {
+      continue;
+    }
+
+    const accountEmail = normalizeOptionalEmail((await options.resolveIdentity(targetPayload)).accountEmail);
+    if (!accountEmail) {
+      return { profiles, changed: false };
+    }
+
+    const updatedAt = Math.round(options.now?.() ?? Date.now());
+    return {
+      changed: true,
+      profiles: profiles.map((candidate) =>
+        candidate.id === profile.id
+          ? { ...candidate, accountEmail, updatedAt }
+          : candidate
+      )
+    };
+  }
+
+  return { profiles, changed: false };
 }
 
 export async function switchAntigravityProfile(options: SelectAntigravityProfileOptions): Promise<SwitchProfileResult> {

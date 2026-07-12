@@ -11,6 +11,7 @@ import {
   cleanupStaleOAuthLoginSessions,
   createOAuthLoginSession,
   inspectOAuthLoginSession,
+  resolveOAuthIdentityFromText,
   saveOAuthLoginSession
 } from "../src/main/oauthLoginService";
 import {
@@ -67,6 +68,69 @@ afterEach(async () => {
 });
 
 describe("oauthLoginService", () => {
+  it("resolves an account email from Google UserInfo when the credential has no embedded identity", async () => {
+    const requestedTokens: string[] = [];
+    const identity = await resolveOAuthIdentityFromText(
+      JSON.stringify({
+        token: {
+          access_token: "fresh-access-token",
+          expiry: "2026-07-12T10:00:00.000Z"
+        }
+      }),
+      {
+        now: () => new Date("2026-07-12T09:00:00.000Z").getTime(),
+        fetchUserInfo: async (accessToken) => {
+          requestedTokens.push(accessToken);
+          return { email: "Agy.User@Gmail.com", name: "Agy User" };
+        }
+      }
+    );
+
+    expect(requestedTokens).toEqual(["fresh-access-token"]);
+    expect(identity).toEqual({ accountEmail: "agy.user@gmail.com" });
+  });
+
+  it("does not request UserInfo with an expired access token", async () => {
+    let requested = false;
+    const identity = await resolveOAuthIdentityFromText(
+      JSON.stringify({
+        token: {
+          access_token: "expired-access-token",
+          expiry: "2026-07-12T08:00:00.000Z"
+        }
+      }),
+      {
+        now: () => new Date("2026-07-12T09:00:00.000Z").getTime(),
+        fetchUserInfo: async () => {
+          requested = true;
+          return { email: "should-not-run@example.com" };
+        }
+      }
+    );
+
+    expect(requested).toBe(false);
+    expect(identity).toEqual({});
+  });
+
+  it("falls back safely when the UserInfo request fails", async () => {
+    const identity = await resolveOAuthIdentityFromText(
+      JSON.stringify({
+        token: {
+          access_token: "fresh-access-token",
+          expiry: "2026-07-12T10:00:00.000Z"
+        }
+      }),
+      {
+        now: () => new Date("2026-07-12T09:00:00.000Z").getTime(),
+        fetchUserInfo: async () => {
+          throw new Error("network unavailable");
+        }
+      }
+    );
+
+    expect(identity).toEqual({});
+  });
+
   it("creates a pending login profile and launches Gemini with an isolated GEMINI_CLI_HOME", async () => {
     const root = await makeTempRoot();
     const launchedScripts: string[] = [];
@@ -311,6 +375,34 @@ describe("oauthLoginService", () => {
     expect(inspection.proposedNickname).toBeUndefined();
     expect(JSON.stringify(inspection)).not.toContain("redacted-access");
     expect(JSON.stringify(inspection)).not.toContain("redacted-refresh");
+  });
+
+  it("uses the resolved UserInfo identity for an Antigravity credential login", async () => {
+    const root = await makeTempRoot();
+    const pendingProfilePath = path.join(root, ".pending-login-agy-userinfo");
+    await mkdir(pendingProfilePath, { recursive: true });
+    const credentialStore = createMemoryCredentialStore({
+      "gemini:antigravity": JSON.stringify({
+        token: {
+          access_token: "redacted-access",
+          refresh_token: "redacted-refresh"
+        }
+      })
+    });
+
+    const inspection = await inspectOAuthLoginSession({
+      profilesRoot: root,
+      sessionId: "agy-userinfo",
+      pendingProfilePath,
+      targetTool: "antigravity-cli",
+      credentialStore,
+      credentialTarget: "gemini:antigravity",
+      resolveIdentity: async () => ({ accountEmail: "agy.user@gmail.com" })
+    });
+
+    expect(inspection.accountEmail).toBe("agy.user@gmail.com");
+    expect(inspection.proposedProfileName).toBe("agy_user_gmail_com");
+    expect(inspection.proposedNickname).toBe("agy.user@gmail.com");
   });
 
   it("saves an Antigravity CLI login by copying the official credential into the selected profile target", async () => {

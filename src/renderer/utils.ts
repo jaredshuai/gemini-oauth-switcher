@@ -93,7 +93,7 @@ export function usageBarClass(utilization: number): string {
 }
 
 export function getProfileDisplayName(profile: ProfileInfo, nicknames: Record<string, string>): string {
-  return nicknames[getProfileKey(profile)] || profile.name;
+  return nicknames[getProfileKey(profile)] || profile.accountEmail || profile.name;
 }
 
 export function getProfileKey(profile: ProfileInfo): string {

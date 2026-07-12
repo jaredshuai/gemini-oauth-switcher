@@ -9,7 +9,7 @@ import {
   cleanupStaleOAuthLoginSessions,
   createOAuthLoginSession,
   inspectOAuthLoginSession,
-  readOAuthIdentityFromText,
+  resolveOAuthIdentityFromText,
   sanitizeOAuthProfileName,
   saveOAuthLoginSession
 } from "./oauthLoginService";
@@ -25,6 +25,7 @@ import {
   deleteAntigravityProfile,
   listAntigravityProfiles,
   registerCurrentAntigravityProfile,
+  resolveCurrentAntigravityProfileIdentity,
   switchAntigravityProfile
 } from "./antigravityProfileService";
 import { readSettings, saveSettings } from "./settings";
@@ -326,8 +327,19 @@ function registerIpcHandlers(): void {
     const target = getProfileTargetConfig(rawTargetTool ?? settings.selectedTool);
 
     if (target.tool === "antigravity-cli") {
-      return listAntigravityProfiles({
+      const identityResolution = await resolveCurrentAntigravityProfileIdentity({
         profiles: settings.antigravityProfiles ?? [],
+        credentialStore: nativeAntigravityCredentialStore,
+        credentialTarget: ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET,
+        resolveIdentity: resolveOAuthIdentityFromText
+      });
+      const profiles = identityResolution.changed
+        ? (await saveSettings(settingsPath(), { antigravityProfiles: identityResolution.profiles })).antigravityProfiles
+          ?? identityResolution.profiles
+        : identityResolution.profiles;
+
+      return listAntigravityProfiles({
+        profiles,
         credentialStore: nativeAntigravityCredentialStore,
         credentialTarget: ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET
       });
@@ -424,7 +436,7 @@ function registerIpcHandlers(): void {
       throw new Error("当前没有可登记的 Antigravity 登录凭据。");
     }
 
-    const accountEmail = readOAuthIdentityFromText(payload).accountEmail;
+    const accountEmail = (await resolveOAuthIdentityFromText(payload)).accountEmail;
     const profileName = accountEmail
       ? sanitizeOAuthProfileName(accountEmail)
       : `antigravity-account-${hashCredentialPayload(payload).slice(0, 8)}`;

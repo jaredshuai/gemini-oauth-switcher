@@ -18,11 +18,16 @@ import { getProfileTargetConfig, normalizeTargetTool } from "./profileTargets";
 const GEMINI_DIR = ".gemini";
 const OAUTH_FILE = "oauth_creds.json";
 const PENDING_LOGIN_PREFIX = ".pending-login-";
+const GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo";
+const USERINFO_TIMEOUT_MS = 4_000;
+const ACCESS_TOKEN_EXPIRY_SKEW_MS = 30_000;
 
 const hasPwsh = spawnSync("where.exe", ["pwsh.exe"], { stdio: "ignore" }).status === 0;
 
 type LaunchPowerShell = (script: string, title: string) => Promise<void>;
 type TerminateProcessTree = (pid: number) => Promise<void>;
+type OAuthIdentityResolver = (value: string) => Promise<ParsedOAuthIdentity>;
+type OAuthUserInfoFetcher = (accessToken: string) => Promise<unknown>;
 
 interface PowerShellLaunchCommand {
   file: string;
@@ -55,6 +60,7 @@ interface OAuthLoginSessionOptions {
   credentialBackupTarget?: string;
   credentialStore?: CredentialStore;
   credentialTarget?: string;
+  resolveIdentity?: OAuthIdentityResolver;
 }
 
 interface CleanupOAuthLoginSessionOptions extends OAuthLoginSessionOptions {
@@ -89,6 +95,11 @@ interface SaveOAuthLoginSessionOptions extends OAuthLoginSessionOptions {
 
 export interface ParsedOAuthIdentity {
   accountEmail?: string;
+}
+
+export interface ResolveOAuthIdentityOptions {
+  fetchUserInfo?: OAuthUserInfoFetcher;
+  now?: () => number;
 }
 
 interface AntigravityLoginCredentialOptions {
@@ -170,7 +181,7 @@ export async function inspectOAuthLoginSession(options: OAuthLoginSessionOptions
     ? await Promise.all([stat(oauthPath), readOAuthIdentity(oauthPath), hashFile(oauthPath)])
     : [
         await stat(pendingProfilePath),
-        readOAuthIdentityFromText(credentialPayload ?? ""),
+        await (options.resolveIdentity ?? resolveOAuthIdentityFromText)(credentialPayload ?? ""),
         hashCredentialPayload(credentialPayload ?? "")
       ] as const;
   const proposedBaseName = identity.accountEmail ?? `${targetTool === "antigravity-cli" ? "antigravity-profile" : "gemini-account"}-${sha256.slice(0, 8)}`;
@@ -498,6 +509,65 @@ export function readOAuthIdentityFromText(value: string): ParsedOAuthIdentity {
   return { accountEmail: findAnyEmail(parsed) };
 }
 
+export async function resolveOAuthIdentityFromText(
+  value: string,
+  options: ResolveOAuthIdentityOptions = {}
+): Promise<ParsedOAuthIdentity> {
+  const embeddedIdentity = readOAuthIdentityFromText(value);
+  if (embeddedIdentity.accountEmail) {
+    return embeddedIdentity;
+  }
+
+  const accessToken = readFreshOAuthAccessToken(value, options.now?.() ?? Date.now());
+  if (!accessToken) {
+    return {};
+  }
+
+  try {
+    const userInfo = await (options.fetchUserInfo ?? fetchGoogleOAuthUserInfo)(accessToken);
+    if (!userInfo || typeof userInfo !== "object") {
+      return {};
+    }
+
+    const email = normalizeEmail((userInfo as { email?: unknown }).email);
+    return email ? { accountEmail: email } : {};
+  } catch {
+    return {};
+  }
+}
+
+function readFreshOAuthAccessToken(value: string, nowMs: number): string | undefined {
+  try {
+    const parsed = JSON.parse(value) as { token?: { access_token?: unknown; expiry?: unknown } };
+    const accessToken = parsed.token?.access_token;
+    const expiry = parsed.token?.expiry;
+    if (typeof accessToken !== "string" || !accessToken || typeof expiry !== "string") {
+      return undefined;
+    }
+
+    const expiryMs = Date.parse(expiry);
+    return Number.isFinite(expiryMs) && expiryMs > nowMs + ACCESS_TOKEN_EXPIRY_SKEW_MS
+      ? accessToken
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function fetchGoogleOAuthUserInfo(accessToken: string): Promise<unknown> {
+  const response = await fetch(GOOGLE_USERINFO_URL, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    },
+    signal: AbortSignal.timeout(USERINFO_TIMEOUT_MS)
+  });
+  if (!response.ok) {
+    return undefined;
+  }
+
+  return response.json();
+}
+
 function getAntigravityLoginCredentialMode(options: AntigravityLoginCredentialOptions):
   | {
       store: CredentialStore;
@@ -647,7 +717,10 @@ function base64UrlToBase64(value: string): string {
   return base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
 }
 
-function normalizeEmail(value: string): string | undefined {
+function normalizeEmail(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
   const trimmed = value.trim().toLowerCase();
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) ? trimmed : undefined;
 }

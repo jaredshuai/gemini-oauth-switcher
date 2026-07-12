@@ -5,6 +5,7 @@ import {
   deleteAntigravityProfile,
   listAntigravityProfiles,
   registerCurrentAntigravityProfile,
+  resolveCurrentAntigravityProfileIdentity,
   switchAntigravityProfile,
   type AntigravityProfileRecord
 } from "../src/main/antigravityProfileService";
@@ -75,6 +76,44 @@ describe("antigravityProfileService", () => {
       expect.objectContaining({ id: "agy-bob", name: "bob@example.com", exists: true, isCurrent: true })
     ]);
     expect(result.profiles.every((profile) => profile.profilePath === "" && profile.oauthPath === "")).toBe(true);
+  });
+
+  it("adds a resolved email to the current registered account", async () => {
+    const currentPayload = agyCredential("fresh-access", "stable-refresh", "2026-07-12T10:00:00.000Z");
+    const unidentifiedProfiles: AntigravityProfileRecord[] = [
+      {
+        id: "agy-current",
+        name: "antigravity-account-016f80c7",
+        createdAt: 100,
+        updatedAt: 200
+      }
+    ];
+    const store = createMemoryCredentialStore({
+      "gemini-oauth-switcher:antigravity-cli:agy-current": currentPayload,
+      "gemini:antigravity": currentPayload
+    });
+
+    const result = await resolveCurrentAntigravityProfileIdentity({
+      profiles: unidentifiedProfiles,
+      credentialStore: store,
+      resolveIdentity: async (payload) => {
+        expect(payload).toBe(currentPayload);
+        return { accountEmail: "agy.user@gmail.com" };
+      },
+      now: () => 1234
+    });
+
+    expect(result.changed).toBe(true);
+    expect(result.profiles).toEqual([
+      {
+        id: "agy-current",
+        name: "antigravity-account-016f80c7",
+        accountEmail: "agy.user@gmail.com",
+        createdAt: 100,
+        updatedAt: 1234
+      }
+    ]);
+    expect(unidentifiedProfiles[0].accountEmail).toBeUndefined();
   });
 
   it("switches a registered account through Credential Manager and verifies the hash", async () => {
