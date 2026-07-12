@@ -8,6 +8,8 @@ export interface WindowBounds {
 export type TrayBehavior = "exit" | "minimize_to_tray";
 export type TargetTool = "gemini" | "antigravity-cli";
 export type RevealTarget = "profilesRoot" | "targetGeminiDir" | "targetAntigravityCliDir";
+/** Global usage percentage display preference shared by Gemini and Antigravity. */
+export type UsageDisplayMode = "used" | "remaining";
 
 export interface AntigravityProfileRecord {
   id: string;
@@ -23,6 +25,8 @@ export interface AppSettings {
   trayBehavior?: TrayBehavior;
   selectedTool?: TargetTool;
   autoUpdateEnabled?: boolean;
+  /** How usage percentages are shown. Default/backward-compatible: used percentage. */
+  usageDisplayMode?: UsageDisplayMode;
   lastSelectedProfile?: string;
   lastSwitch?: LastSwitchResult;
   profileNicknames?: Record<string, string>;

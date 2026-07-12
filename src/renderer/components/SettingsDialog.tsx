@@ -1,5 +1,5 @@
 import { FolderOpen, RefreshCw, X } from "lucide-react";
-import type { RevealTarget, TargetTool, TrayBehavior } from "../../shared/types";
+import type { RevealTarget, TargetTool, TrayBehavior, UsageDisplayMode } from "../../shared/types";
 import { TOOL_LABELS } from "../constants";
 import type { StatusMessage } from "../types";
 import { PathLine, SettingsStatusBar } from "./StatusBar";
@@ -12,13 +12,16 @@ export function SettingsDialog({
   profilesRoot,
   trayBehavior,
   autoUpdateEnabled,
+  usageDisplayMode,
   isSaving,
   isSavingTrayBehavior,
   isSavingAutoUpdate,
+  isSavingUsageDisplayMode,
   status,
   onProfilesRootChange,
   onTrayBehaviorChange,
   onAutoUpdateEnabledChange,
+  onUsageDisplayModeChange,
   onSelectProfilesRoot,
   onSave,
   onReveal,
@@ -31,13 +34,16 @@ export function SettingsDialog({
   profilesRoot: string;
   trayBehavior: TrayBehavior;
   autoUpdateEnabled: boolean;
+  usageDisplayMode: UsageDisplayMode;
   isSaving: boolean;
   isSavingTrayBehavior: boolean;
   isSavingAutoUpdate: boolean;
+  isSavingUsageDisplayMode: boolean;
   status?: StatusMessage;
   onProfilesRootChange: (value: string) => void;
   onTrayBehaviorChange: (value: TrayBehavior) => void | Promise<void>;
   onAutoUpdateEnabledChange: (enabled: boolean) => void | Promise<void>;
+  onUsageDisplayModeChange: (mode: UsageDisplayMode) => void | Promise<void>;
   onSelectProfilesRoot: () => void;
   onSave: () => void;
   onReveal: (target: RevealTarget) => void;
@@ -133,6 +139,31 @@ export function SettingsDialog({
                 disabled={isSaving || isSavingAutoUpdate}
               >
                 关闭
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <div className="text-sm font-semibold text-neutral-800">用量百分比显示</div>
+            <p className="mt-1 text-xs text-neutral-500">Gemini 与 Antigravity 共用；切换后立即作用于已查询的用量。</p>
+            <div className="mt-2 inline-flex overflow-hidden rounded-md border border-neutral-300 bg-white/70 p-1">
+              <button
+                className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
+                  usageDisplayMode === "used" ? "bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
+                }`}
+                onClick={() => void onUsageDisplayModeChange("used")}
+                disabled={isSaving || isSavingUsageDisplayMode}
+              >
+                已用百分比
+              </button>
+              <button
+                className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
+                  usageDisplayMode === "remaining" ? "bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
+                }`}
+                onClick={() => void onUsageDisplayModeChange("remaining")}
+                disabled={isSaving || isSavingUsageDisplayMode}
+              >
+                剩余百分比
               </button>
             </div>
           </div>

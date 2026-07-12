@@ -143,6 +143,31 @@ describe("settings defaults", () => {
     });
   });
 
+  it("stores usage display mode and defaults to used percentage", async () => {
+    const root = await makeTempRoot();
+    const settingsPath = path.join(root, "settings.json");
+
+    await expect(readSettings(settingsPath)).resolves.toMatchObject({
+      usageDisplayMode: "used"
+    });
+
+    await saveSettings(settingsPath, {
+      usageDisplayMode: "remaining"
+    });
+
+    await expect(readSettings(settingsPath)).resolves.toMatchObject({
+      usageDisplayMode: "remaining"
+    });
+
+    await saveSettings(settingsPath, {
+      usageDisplayMode: "unknown"
+    } as unknown as Partial<AppSettings> & Record<string, unknown>);
+
+    await expect(readSettings(settingsPath)).resolves.toMatchObject({
+      usageDisplayMode: "used"
+    });
+  });
+
   it("stores the selected target tool and falls back to Gemini for unknown values", async () => {
     const root = await makeTempRoot();
     const settingsPath = path.join(root, "settings.json");

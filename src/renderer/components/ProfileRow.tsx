@@ -1,11 +1,13 @@
 import { Clock, Copy, FolderKey, KeyRound, Pencil, RefreshCw, Shuffle, Trash2 } from "lucide-react";
-import type { ProfileInfo, ProfileUsageResult, TargetTool, UsageGroup, UsageTier } from "../../shared/types";
+import type { ProfileInfo, ProfileUsageResult, TargetTool, UsageDisplayMode, UsageGroup, UsageTier } from "../../shared/types";
 import { TOOL_LABELS } from "../constants";
 import {
-  clampPercentage,
   describeUsageFailure,
   formatRelativeTime,
   formatResetTime,
+  formatUsageAriaLabel,
+  formatUsageTierLabel,
+  toDisplayUsagePercentage,
   usageBarClass
 } from "../utils";
 
@@ -18,6 +20,7 @@ export function ProfileRow({
   isSwitchDisabled,
   isDeleteDisabled,
   usage,
+  usageDisplayMode = "used",
   isRefreshingUsage,
   onSwitch,
   onDelete,
@@ -34,6 +37,7 @@ export function ProfileRow({
   isSwitchDisabled: boolean;
   isDeleteDisabled: boolean;
   usage?: ProfileUsageResult;
+  usageDisplayMode?: UsageDisplayMode;
   isRefreshingUsage: boolean;
   onSwitch: () => void;
   onDelete: () => void;
@@ -100,6 +104,7 @@ export function ProfileRow({
         selectedTool={selectedTool}
         profile={profile}
         usage={usage}
+        usageDisplayMode={usageDisplayMode}
         isRefreshing={isRefreshingUsage}
         onRefresh={onRefreshUsage}
       />
@@ -126,12 +131,14 @@ function UsageCell({
   selectedTool,
   profile,
   usage,
+  usageDisplayMode,
   isRefreshing,
   onRefresh
 }: {
   selectedTool: TargetTool;
   profile: ProfileInfo;
   usage?: ProfileUsageResult;
+  usageDisplayMode: UsageDisplayMode;
   isRefreshing: boolean;
   onRefresh: () => void;
 }) {
@@ -154,7 +161,7 @@ function UsageCell({
   return (
     <div className="min-w-0">
       {usage ? (
-        <UsageSummary selectedTool={selectedTool} usage={usage} onRefresh={onRefresh} />
+        <UsageSummary selectedTool={selectedTool} usage={usage} usageDisplayMode={usageDisplayMode} onRefresh={onRefresh} />
       ) : (
         <div className="flex items-center justify-start gap-3">
           <UsageRefreshButton label="查询用量" onRefresh={onRefresh} />
@@ -168,10 +175,12 @@ function UsageCell({
 function UsageSummary({
   selectedTool,
   usage,
+  usageDisplayMode,
   onRefresh
 }: {
   selectedTool: TargetTool;
   usage: ProfileUsageResult;
+  usageDisplayMode: UsageDisplayMode;
   onRefresh: () => void;
 }) {
   if (!usage.success) {
@@ -200,13 +209,13 @@ function UsageSummary({
       {groups.length > 0 ? (
         <div className="grid grid-cols-2 gap-4">
           {groups.map((group) => (
-            <UsageGroupBlock key={group.name} group={group} />
+            <UsageGroupBlock key={group.name} group={group} usageDisplayMode={usageDisplayMode} />
           ))}
         </div>
       ) : (
         <div className="space-y-2">
           {usage.tiers.map((tier) => (
-            <UsageTierBar key={tier.name} tier={tier} />
+            <UsageTierBar key={tier.name} tier={tier} usageDisplayMode={usageDisplayMode} />
           ))}
         </div>
       )}
@@ -225,33 +234,44 @@ function UsageSummary({
   );
 }
 
-function UsageGroupBlock({ group }: { group: UsageGroup }) {
+function UsageGroupBlock({ group, usageDisplayMode }: { group: UsageGroup; usageDisplayMode: UsageDisplayMode }) {
   return (
     <div className="min-w-0" title={group.description}>
       <div className="mb-1.5 truncate font-mono text-[10px] font-semibold text-neutral-700">{group.label}</div>
       <div className="space-y-1.5">
         {group.tiers.map((tier) => (
-          <CompactUsageTierBar key={tier.name} tier={tier} groupLabel={group.label} />
+          <CompactUsageTierBar key={tier.name} tier={tier} groupLabel={group.label} usageDisplayMode={usageDisplayMode} />
         ))}
       </div>
     </div>
   );
 }
 
-function CompactUsageTierBar({ tier, groupLabel }: { tier: UsageTier; groupLabel: string }) {
-  const percentage = clampPercentage(tier.utilization);
+function CompactUsageTierBar({
+  tier,
+  groupLabel,
+  usageDisplayMode
+}: {
+  tier: UsageTier;
+  groupLabel: string;
+  usageDisplayMode: UsageDisplayMode;
+}) {
+  const percentage = toDisplayUsagePercentage(tier.utilization, usageDisplayMode);
+  const displayLabel = formatUsageTierLabel(tier.label, usageDisplayMode);
   const resetText = formatResetTime(tier.resetsAt);
-  const title = resetText ? `${groupLabel} ${tier.label} · ${percentage}% · ${resetText}` : `${groupLabel} ${tier.label} · ${percentage}%`;
+  const ariaLabel = formatUsageAriaLabel([groupLabel, displayLabel], percentage, usageDisplayMode);
+  const title = resetText ? `${groupLabel} ${displayLabel} · ${percentage}% · ${resetText}` : `${groupLabel} ${displayLabel} · ${percentage}%`;
 
   return (
     <div className="grid min-w-0 grid-cols-[20px_minmax(44px,1fr)_32px] items-center gap-1.5 font-mono text-[10px] leading-none text-neutral-700" title={title}>
-      <span>{tier.label}</span>
+      {/* Narrow column keeps short bucket keys; full mode wording lives in title/aria. */}
+      <span title={displayLabel}>{tier.label}</span>
       <div className="h-1.5 overflow-hidden rounded-full bg-neutral-200">
         <div
           className={`h-full rounded-full ${usageBarClass(tier.utilization)}`}
           style={{ width: `${percentage}%` }}
           role="progressbar"
-          aria-label={`${groupLabel} ${tier.label} ${percentage}%`}
+          aria-label={ariaLabel}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={percentage}
@@ -271,22 +291,24 @@ function UsageRefreshButton({ label, onRefresh }: { label: string; onRefresh: ()
   );
 }
 
-function UsageTierBar({ tier }: { tier: UsageTier }) {
-  const percentage = clampPercentage(tier.utilization);
+function UsageTierBar({ tier, usageDisplayMode }: { tier: UsageTier; usageDisplayMode: UsageDisplayMode }) {
+  const percentage = toDisplayUsagePercentage(tier.utilization, usageDisplayMode);
+  const displayLabel = formatUsageTierLabel(tier.label, usageDisplayMode);
   const resetText = formatResetTime(tier.resetsAt);
+  const ariaLabel = formatUsageAriaLabel([displayLabel], percentage, usageDisplayMode);
 
   return (
     <div className="min-w-0">
       <div className="grid grid-cols-[78px_minmax(96px,1fr)_36px] items-center gap-2 font-mono text-[11px] leading-none text-neutral-700">
-        <span className="whitespace-nowrap" title={tier.label}>
-          {tier.label}
+        <span className="whitespace-nowrap" title={displayLabel}>
+          {displayLabel}
         </span>
         <div className="h-1.5 overflow-hidden rounded-full bg-neutral-200">
           <div
             className={`h-full rounded-full ${usageBarClass(tier.utilization)}`}
             style={{ width: `${percentage}%` }}
             role="progressbar"
-            aria-label={`${tier.label} ${percentage}%`}
+            aria-label={ariaLabel}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={percentage}

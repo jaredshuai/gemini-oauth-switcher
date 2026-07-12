@@ -11,7 +11,8 @@ import type {
   ProfileUsageResult,
   RevealTarget,
   TargetTool,
-  TrayBehavior
+  TrayBehavior,
+  UsageDisplayMode
 } from "../shared/types";
 import { CurrentAccountPanel } from "./components/CurrentAccountPanel";
 import { NicknameDialog } from "./components/NicknameDialog";
@@ -29,6 +30,7 @@ export function App() {
   const [profilesRootDraft, setProfilesRootDraft] = useState("");
   const [trayBehaviorDraft, setTrayBehaviorDraft] = useState<TrayBehavior>("exit");
   const [autoUpdateEnabledDraft, setAutoUpdateEnabledDraft] = useState(true);
+  const [usageDisplayModeDraft, setUsageDisplayModeDraft] = useState<UsageDisplayMode>("used");
   const [selectedTool, setSelectedTool] = useState<TargetTool>("gemini");
   const [result, setResult] = useState<ProfileListResult>(emptyResult);
   const [status, setStatus] = useState<StatusMessage>({
@@ -46,6 +48,7 @@ export function App() {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingTrayBehavior, setIsSavingTrayBehavior] = useState(false);
   const [isSavingAutoUpdate, setIsSavingAutoUpdate] = useState(false);
+  const [isSavingUsageDisplayMode, setIsSavingUsageDisplayMode] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState<StatusMessage | undefined>();
   const [nicknameEditorProfile, setNicknameEditorProfile] = useState<ProfileInfo | undefined>();
   const [nicknameDraft, setNicknameDraft] = useState("");
@@ -139,6 +142,7 @@ export function App() {
         setProfilesRootDraft(nextSettings.profilesRoot);
         setTrayBehaviorDraft(nextSettings.trayBehavior ?? "exit");
         setAutoUpdateEnabledDraft(nextSettings.autoUpdateEnabled !== false);
+        setUsageDisplayModeDraft(nextSettings.usageDisplayMode ?? "used");
         await loadProfiles(nextSelectedTool);
       } catch (error) {
         if (mounted) {
@@ -235,6 +239,7 @@ export function App() {
       setProfilesRootDraft(nextSettings.profilesRoot);
       setTrayBehaviorDraft(nextSettings.trayBehavior ?? "exit");
       setAutoUpdateEnabledDraft(nextSettings.autoUpdateEnabled !== false);
+      setUsageDisplayModeDraft(nextSettings.usageDisplayMode ?? "used");
       setUsageByProfile({});
       const nextResult = await loadProfiles(selectedTool);
       if (nextResult) {
@@ -325,6 +330,31 @@ export function App() {
       setSettingsStatus({ tone: "error", text: message });
     } finally {
       setIsSavingAutoUpdate(false);
+    }
+  }
+
+  async function saveUsageDisplayMode(mode: UsageDisplayMode) {
+    if (profileActionInFlightRef.current || settingsActionInFlightRef.current) {
+      setSettingsStatus({ tone: "idle", text: "账号操作完成后再修改用量显示。" });
+      return;
+    }
+
+    const previousMode = settings.usageDisplayMode ?? "used";
+    // Optimistic update so already-loaded usage re-renders without re-query.
+    setUsageDisplayModeDraft(mode);
+    setIsSavingUsageDisplayMode(true);
+
+    try {
+      const nextSettings = await getApi().saveSettings({ usageDisplayMode: mode });
+      setSettings(nextSettings);
+      setUsageDisplayModeDraft(nextSettings.usageDisplayMode ?? "used");
+    } catch (error) {
+      const message = getErrorMessage(error);
+      setUsageDisplayModeDraft(previousMode);
+      setStatus({ tone: "error", text: message });
+      setSettingsStatus({ tone: "error", text: message });
+    } finally {
+      setIsSavingUsageDisplayMode(false);
     }
   }
 
@@ -756,6 +786,7 @@ export function App() {
                   setSettingsStatus(undefined);
                   setTrayBehaviorDraft(settings.trayBehavior ?? "exit");
                   setAutoUpdateEnabledDraft(settings.autoUpdateEnabled !== false);
+                  setUsageDisplayModeDraft(settings.usageDisplayMode ?? "used");
                   setIsSettingsOpen(true);
                 }}
                 title="打开设置"
@@ -810,6 +841,7 @@ export function App() {
                   isSwitchDisabled={isProfileActionBusy || isSavingSettings}
                   isDeleteDisabled={isProfileActionBusy || isSavingSettings}
                   usage={usageByProfile[getProfileKey(profile)]}
+                  usageDisplayMode={usageDisplayModeDraft}
                   nickname={profileNicknames[getProfileKey(profile)]}
                   isRefreshingUsage={refreshingUsageProfiles.has(getProfileKey(profile)) || isRefreshingAllUsage}
                   onSwitch={() => switchToProfile(profile)}
@@ -839,13 +871,16 @@ export function App() {
             profilesRoot={settings.profilesRoot}
             trayBehavior={trayBehaviorDraft}
             autoUpdateEnabled={autoUpdateEnabledDraft}
+            usageDisplayMode={usageDisplayModeDraft}
             isSaving={isSavingSettings}
             isSavingTrayBehavior={isSavingTrayBehavior}
             isSavingAutoUpdate={isSavingAutoUpdate}
+            isSavingUsageDisplayMode={isSavingUsageDisplayMode}
             status={settingsStatus}
             onProfilesRootChange={setProfilesRootDraft}
             onTrayBehaviorChange={saveTrayBehavior}
             onAutoUpdateEnabledChange={saveAutoUpdateEnabled}
+            onUsageDisplayModeChange={saveUsageDisplayMode}
             onSelectProfilesRoot={selectProfilesRoot}
             onSave={saveProfilesRoot}
             onReveal={reveal}

@@ -1,4 +1,4 @@
-import type { ProfileInfo, ProfileUsageResult, TargetTool } from "../shared/types";
+import type { ProfileInfo, ProfileUsageResult, TargetTool, UsageDisplayMode } from "../shared/types";
 
 interface ElapsedSuffixes {
   now: string;
@@ -49,6 +49,63 @@ export function clampPercentage(value: number): number {
   return Math.min(100, Math.max(0, Math.round(value)));
 }
 
+/** API data is always used/utilization percentage; remaining is derived as 100 - used. */
+export function toDisplayUsagePercentage(utilization: number, mode: UsageDisplayMode = "used"): number {
+  const used = clampPercentage(utilization);
+  return mode === "remaining" ? clampPercentage(100 - used) : used;
+}
+
+/**
+ * Color severity always tracks quota pressure (used %).
+ * High used / low remaining → red; comfortable remaining → green.
+ */
+export function usageBarClass(utilization: number): string {
+  const used = clampPercentage(utilization);
+  if (used >= 90) {
+    return "bg-red-500";
+  }
+  if (used >= 70) {
+    return "bg-amber-500";
+  }
+
+  return "bg-emerald-500";
+}
+
+/**
+ * Mode-aware tier labels for remaining mode.
+ * Only recognized time-window quota labels are rewritten (周 / 5h).
+ * Gemini model tiers (Pro, Flash, Flash Lite, etc.) stay unchanged to fit the 78px column.
+ */
+export function formatUsageTierLabel(label: string, mode: UsageDisplayMode = "used"): string {
+  if (mode !== "remaining") {
+    return label;
+  }
+
+  if (label === "周" || label === "周限额" || label === "周限额剩余") {
+    return "周限额剩余";
+  }
+  if (label === "5h" || label === "5 小时" || label === "5 小时剩余") {
+    return "5 小时剩余";
+  }
+
+  return label;
+}
+
+export function formatUsageAriaLabel(
+  parts: Array<string | undefined>,
+  percentage: number,
+  mode: UsageDisplayMode = "used"
+): string {
+  const base = parts.filter((part): part is string => Boolean(part && part.trim())).join(" ");
+  if (mode === "remaining") {
+    if (base.includes("剩余")) {
+      return `${base} ${percentage}%`.replace(/\s+/g, " ").trim();
+    }
+    return `${base} 剩余 ${percentage}%`.replace(/\s+/g, " ").trim();
+  }
+  return `${base} 已用 ${percentage}%`.replace(/\s+/g, " ").trim();
+}
+
 export function formatResetTime(value?: string): string | undefined {
   if (!value) {
     return undefined;
@@ -79,17 +136,6 @@ export function buildProfileLoginPreview(profilesRoot: string, profileName: stri
 
   const relativePath = ".gemini\\oauth_creds.json";
   return `${profilesRoot.replace(/[\\/]+$/, "")}\\${profileName}\\${relativePath}`;
-}
-
-export function usageBarClass(utilization: number): string {
-  if (utilization >= 90) {
-    return "bg-red-500";
-  }
-  if (utilization >= 70) {
-    return "bg-amber-500";
-  }
-
-  return "bg-emerald-500";
 }
 
 export function getProfileDisplayName(profile: ProfileInfo, nicknames: Record<string, string>): string {

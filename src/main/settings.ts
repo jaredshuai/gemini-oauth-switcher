@@ -1,12 +1,21 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { AntigravityProfileRecord, AppSettings, LastSwitchResult, TargetTool, TrayBehavior, WindowBounds } from "../shared/types";
+import type {
+  AntigravityProfileRecord,
+  AppSettings,
+  LastSwitchResult,
+  TargetTool,
+  TrayBehavior,
+  UsageDisplayMode,
+  WindowBounds
+} from "../shared/types";
 import { getDefaultProfilesRoot } from "./paths";
 
 const DEFAULT_SETTINGS: AppSettings = {
   profilesRoot: getDefaultProfilesRoot(),
   selectedTool: "gemini",
-  autoUpdateEnabled: true
+  autoUpdateEnabled: true,
+  usageDisplayMode: "used"
 };
 const saveQueues = new Map<string, Promise<AppSettings>>();
 
@@ -64,7 +73,8 @@ function sanitizeSettings(value: unknown): AppSettings {
   const settings: AppSettings = {
     profilesRoot,
     selectedTool: sanitizeTargetTool(input.selectedTool),
-    autoUpdateEnabled: input.autoUpdateEnabled !== false
+    autoUpdateEnabled: input.autoUpdateEnabled !== false,
+    usageDisplayMode: sanitizeUsageDisplayMode(input.usageDisplayMode)
   };
 
   settings.trayBehavior = sanitizeTrayBehavior(input.trayBehavior);
@@ -102,6 +112,10 @@ function sanitizeTrayBehavior(value: unknown): TrayBehavior {
 
 function sanitizeTargetTool(value: unknown): TargetTool {
   return value === "antigravity-cli" ? "antigravity-cli" : "gemini";
+}
+
+function sanitizeUsageDisplayMode(value: unknown): UsageDisplayMode {
+  return value === "remaining" ? "remaining" : "used";
 }
 
 function sanitizeLastSwitch(value: unknown): LastSwitchResult | undefined {

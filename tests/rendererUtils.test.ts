@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { ProfileInfo } from "../src/shared/types";
-import { describeUsageFailure, getProfileDisplayName } from "../src/renderer/utils";
+import {
+  describeUsageFailure,
+  formatUsageAriaLabel,
+  formatUsageTierLabel,
+  getProfileDisplayName,
+  toDisplayUsagePercentage,
+  usageBarClass
+} from "../src/renderer/utils";
 
 describe("renderer utils", () => {
   it("uses a resolved account email when no custom nickname exists", () => {
@@ -32,5 +39,40 @@ describe("renderer utils", () => {
       credentialStatus: "expired",
       tiers: []
     }, "antigravity-cli")).toBe("登录凭据已过期");
+  });
+
+  it("converts utilization to remaining percentage without mutating API used values", () => {
+    expect(toDisplayUsagePercentage(15, "used")).toBe(15);
+    expect(toDisplayUsagePercentage(15, "remaining")).toBe(85);
+    expect(toDisplayUsagePercentage(0, "remaining")).toBe(100);
+    expect(toDisplayUsagePercentage(100, "remaining")).toBe(0);
+    expect(toDisplayUsagePercentage(26.4, "remaining")).toBe(74);
+  });
+
+  it("keeps bar severity keyed to used pressure even in remaining mode", () => {
+    expect(usageBarClass(15)).toBe("bg-emerald-500");
+    expect(usageBarClass(75)).toBe("bg-amber-500");
+    expect(usageBarClass(95)).toBe("bg-red-500");
+  });
+
+  it("formats remaining-mode tier labels only for recognized time quotas", () => {
+    expect(formatUsageTierLabel("周", "used")).toBe("周");
+    expect(formatUsageTierLabel("5h", "used")).toBe("5h");
+    expect(formatUsageTierLabel("Pro", "used")).toBe("Pro");
+
+    expect(formatUsageTierLabel("周", "remaining")).toBe("周限额剩余");
+    expect(formatUsageTierLabel("5h", "remaining")).toBe("5 小时剩余");
+    // Model/tier names must not grow a 剩余 suffix (78px column overflow risk).
+    expect(formatUsageTierLabel("Pro", "remaining")).toBe("Pro");
+    expect(formatUsageTierLabel("Flash", "remaining")).toBe("Flash");
+    expect(formatUsageTierLabel("Flash Lite", "remaining")).toBe("Flash Lite");
+    expect(formatUsageTierLabel("配额", "remaining")).toBe("配额");
+  });
+
+  it("keeps aria wording explicit about remaining vs used percentage", () => {
+    expect(formatUsageAriaLabel(["Gemini", "周限额剩余"], 85, "remaining")).toBe("Gemini 周限额剩余 85%");
+    expect(formatUsageAriaLabel(["Flash"], 40, "remaining")).toBe("Flash 剩余 40%");
+    expect(formatUsageAriaLabel(["Pro"], 74, "remaining")).toBe("Pro 剩余 74%");
+    expect(formatUsageAriaLabel(["Pro"], 26, "used")).toBe("Pro 已用 26%");
   });
 });
