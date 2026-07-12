@@ -93,7 +93,11 @@ export function usageBarClass(utilization: number): string {
 }
 
 export function getProfileDisplayName(profile: ProfileInfo, nicknames: Record<string, string>): string {
-  return nicknames[profile.name] || profile.name;
+  return nicknames[getProfileKey(profile)] || profile.name;
+}
+
+export function getProfileKey(profile: ProfileInfo): string {
+  return profile.id || profile.name;
 }
 
 export function describeUsageFailure(usage: ProfileUsageResult): string {

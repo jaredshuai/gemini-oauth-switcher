@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir, homedir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { getDefaultProfilesRoot, getDefaultTargetAntigravityCliSettingsPath } from "../src/main/paths";
+import { getAntigravityLoginRoot, getDefaultProfilesRoot, getDefaultTargetAntigravityCliSettingsPath } from "../src/main/paths";
 import { readSettings, saveSettings } from "../src/main/settings";
 import type { AppSettings } from "../src/shared/types";
 
@@ -29,6 +29,13 @@ describe("settings defaults", () => {
     );
   });
 
+  it("keeps Antigravity login workspaces outside the Gemini profiles root", () => {
+    const loginRoot = getAntigravityLoginRoot(path.join("C:\\Temp", "app-temp"));
+
+    expect(loginRoot).toBe(path.join("C:\\Temp", "app-temp", "gemini-oauth-switcher", "antigravity-login"));
+    expect(loginRoot).not.toContain(".gemini-homes");
+  });
+
   it("uses the default profilesRoot when no settings file exists", async () => {
     const root = await makeTempRoot();
 
@@ -52,6 +59,41 @@ describe("settings defaults", () => {
       profileNicknames: {
         "work-profile": "Work"
       }
+    });
+  });
+
+  it("stores only sanitized Antigravity account metadata", async () => {
+    const root = await makeTempRoot();
+    const settingsPath = path.join(root, "settings.json");
+
+    await saveSettings(settingsPath, {
+      antigravityProfiles: [
+        {
+          id: "agy-alice",
+          name: " Alice ",
+          accountEmail: "ALICE@EXAMPLE.COM",
+          createdAt: 100,
+          updatedAt: 200
+        },
+        {
+          id: "bad id",
+          name: "Ignored",
+          createdAt: 100,
+          updatedAt: 200
+        }
+      ]
+    } as Partial<AppSettings>);
+
+    await expect(readSettings(settingsPath)).resolves.toMatchObject({
+      antigravityProfiles: [
+        {
+          id: "agy-alice",
+          name: "Alice",
+          accountEmail: "alice@example.com",
+          createdAt: 100,
+          updatedAt: 200
+        }
+      ]
     });
   });
 

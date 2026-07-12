@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeftRight } from "lucide-react";
 import type { TargetTool } from "../../shared/types";
 import { TOOL_LABELS } from "../constants";
 
@@ -13,32 +13,33 @@ export function TargetToolSwitch({
 }) {
   const tools: TargetTool[] = ["gemini", "antigravity-cli"];
   const currentIndex = tools.indexOf(selectedTool);
-  const prevTool = tools[(currentIndex - 1 + tools.length) % tools.length];
   const nextTool = tools[(currentIndex + 1) % tools.length];
 
   return (
-    <div className="flex items-center gap-1" aria-label="切换目标工具">
-      <div className="flex flex-col">
-        <button
-          className="copy-icon-button h-4"
-          onClick={() => void onChange(prevTool)}
-          disabled={disabled}
-          aria-label={`切换到 ${TOOL_LABELS[prevTool].name}`}
-          title={`切换到 ${TOOL_LABELS[prevTool].name}`}
-        >
-          <ChevronUp className="h-3 w-3" />
-        </button>
-        <button
-          className="copy-icon-button h-4"
-          onClick={() => void onChange(nextTool)}
-          disabled={disabled}
-          aria-label={`切换到 ${TOOL_LABELS[nextTool].name}`}
-          title={`切换到 ${TOOL_LABELS[nextTool].name}`}
-        >
-          <ChevronDown className="h-3 w-3" />
-        </button>
-      </div>
-      <span>{TOOL_LABELS[selectedTool].shortName}</span>
-    </div>
+    <button
+      className="mode-loadout"
+      onClick={() => void onChange(nextTool)}
+      disabled={disabled}
+      aria-label={`切换到 ${TOOL_LABELS[nextTool].name}`}
+      title={`切换到 ${TOOL_LABELS[nextTool].name}`}
+    >
+      <span key={selectedTool} className="mode-loadout-track" aria-hidden="true">
+        <span className="mode-loadout-slot mode-loadout-active">
+          <span className="mode-loadout-sigil">I</span>
+          <span className="mode-loadout-name">
+            {TOOL_LABELS[selectedTool].shortName}
+          </span>
+        </span>
+        <span className="mode-loadout-swap">
+          <ArrowLeftRight className="h-[18px] w-[18px]" />
+        </span>
+        <span className="mode-loadout-slot mode-loadout-secondary">
+          <span className="mode-loadout-sigil">II</span>
+          <span className="mode-loadout-name">
+            {TOOL_LABELS[nextTool].shortName}
+          </span>
+        </span>
+      </span>
+    </button>
   );
 }

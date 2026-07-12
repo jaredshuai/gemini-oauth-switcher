@@ -7,6 +7,7 @@ import type { OAuthLoginInspectResult, OAuthLoginSaveResult, OAuthLoginSession, 
 import {
   ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET,
   type CredentialStore,
+  getAntigravityLoginBackupCredentialTarget,
   getAntigravityProfileCredentialTarget,
   hashCredentialPayload,
   nativeAntigravityCredentialStore
@@ -38,6 +39,8 @@ interface PowerShellLoginScriptOptions {
 interface CreateOAuthLoginSessionOptions {
   profilesRoot: string;
   targetTool?: TargetTool;
+  credentialStore?: CredentialStore;
+  credentialTarget?: string;
   launchPowerShell?: LaunchPowerShell;
   now?: () => Date;
   randomId?: () => string;
@@ -49,11 +52,13 @@ interface OAuthLoginSessionOptions {
   pendingProfilePath: string;
   targetTool?: TargetTool;
   pidFilePath?: string;
+  credentialBackupTarget?: string;
   credentialStore?: CredentialStore;
   credentialTarget?: string;
 }
 
 interface CleanupOAuthLoginSessionOptions extends OAuthLoginSessionOptions {
+  restorePreviousCredential?: boolean;
   removeDirectory?: (directoryPath: string) => Promise<void>;
   removeFile?: (filePath: string) => Promise<void>;
   terminateProcessTree?: TerminateProcessTree;
@@ -61,6 +66,8 @@ interface CleanupOAuthLoginSessionOptions extends OAuthLoginSessionOptions {
 
 interface CleanupStaleOAuthLoginSessionsOptions {
   profilesRoot: string;
+  credentialStore?: CredentialStore;
+  credentialTarget?: string;
   olderThanMs?: number;
   nowMs?: () => number;
   removeDirectory?: (directoryPath: string) => Promise<void>;
@@ -80,8 +87,14 @@ interface SaveOAuthLoginSessionOptions extends OAuthLoginSessionOptions {
   getProfileCredentialTarget?: (profileName: string) => string;
 }
 
-interface ParsedOAuthIdentity {
+export interface ParsedOAuthIdentity {
   accountEmail?: string;
+}
+
+interface AntigravityLoginCredentialOptions {
+  targetTool?: TargetTool;
+  credentialStore?: CredentialStore;
+  credentialTarget?: string;
 }
 
 export async function createOAuthLoginSession(options: CreateOAuthLoginSessionOptions): Promise<OAuthLoginSession> {
@@ -92,7 +105,15 @@ export async function createOAuthLoginSession(options: CreateOAuthLoginSessionOp
   const sessionId = makeSessionId(options.now?.() ?? new Date(), options.randomId?.() ?? randomBytes(4).toString("hex"));
   const pendingProfilePath = path.join(profilesRoot, `${PENDING_LOGIN_PREFIX}${sessionId}`);
   const pidFilePath = getPidFilePath(profilesRoot, sessionId);
+  const credentialMode = getAntigravityLoginCredentialMode(options);
+  const credentialBackupTarget = credentialMode
+    ? getAntigravityLoginBackupCredentialTarget(profilesRoot, sessionId)
+    : undefined;
   await mkdir(pendingProfilePath, { recursive: true });
+
+  if (credentialMode && credentialBackupTarget) {
+    await prepareAntigravityLoginCredential(credentialMode, credentialBackupTarget);
+  }
 
   const script = buildPowerShellLoginScript({
     profilePath: pendingProfilePath,
@@ -100,16 +121,26 @@ export async function createOAuthLoginSession(options: CreateOAuthLoginSessionOp
     workingDirectory: profilesRoot,
     targetTool
   });
-  await (options.launchPowerShell ?? launchPowerShellWindow)(
-    script,
-    targetTool === "antigravity-cli" ? "Antigravity CLI Login" : "Gemini OAuth Login"
-  );
+  try {
+    await (options.launchPowerShell ?? launchPowerShellWindow)(
+      script,
+      targetTool === "antigravity-cli" ? "Antigravity CLI Login" : "Gemini OAuth Login"
+    );
+  } catch (error) {
+    if (credentialMode && credentialBackupTarget) {
+      await finalizeAntigravityLoginCredential(credentialMode, credentialBackupTarget, true, true).catch(() => undefined);
+    }
+    await rm(pendingProfilePath, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
 
   return {
     sessionId,
     targetTool,
+    loginRoot: profilesRoot,
     pendingProfilePath,
     pidFilePath,
+    credentialBackupTarget,
     oauthPath: getLoginCredentialPath(pendingProfilePath, targetTool),
     startedAt: Date.now()
   };
@@ -143,7 +174,7 @@ export async function inspectOAuthLoginSession(options: OAuthLoginSessionOptions
         hashCredentialPayload(credentialPayload ?? "")
       ] as const;
   const proposedBaseName = identity.accountEmail ?? `${targetTool === "antigravity-cli" ? "antigravity-profile" : "gemini-account"}-${sha256.slice(0, 8)}`;
-  const proposedProfileName = sanitizeProfileName(proposedBaseName);
+  const proposedProfileName = sanitizeOAuthProfileName(proposedBaseName);
   const conflictProfileName = await findConflictProfileName(profilesRoot, proposedProfileName, identity.accountEmail);
 
   return {
@@ -202,7 +233,7 @@ export async function saveOAuthLoginSession(options: SaveOAuthLoginSessionOption
   let savedOAuthPath = getLoginCredentialPath(targetProfilePath, targetTool);
   let savedHash = await fileExists(savedOAuthPath) ? await hashFile(savedOAuthPath) : inspection.sha256;
   if (credentialMode && credentialPayload) {
-    const profileCredentialTarget = (options.getProfileCredentialTarget ?? ((name: string) => getAntigravityProfileCredentialTarget(profilesRoot, name)))(
+    const profileCredentialTarget = (options.getProfileCredentialTarget ?? getAntigravityProfileCredentialTarget)(
       profileName
     );
     await credentialMode.store.set(profileCredentialTarget, credentialPayload);
@@ -236,6 +267,18 @@ export async function cleanupOAuthLoginSession(options: CleanupOAuthLoginSession
     options.terminateProcessTree ? 0 : 1500
   );
 
+  const credentialMode = getAntigravityLoginCredentialMode(options);
+  if (credentialMode) {
+    const credentialBackupTarget =
+      options.credentialBackupTarget ?? getAntigravityLoginBackupCredentialTarget(profilesRoot, options.sessionId);
+    await finalizeAntigravityLoginCredential(
+      credentialMode,
+      credentialBackupTarget,
+      options.restorePreviousCredential === true,
+      options.restorePreviousCredential === true
+    );
+  }
+
   try {
     await removeDirectoryWithRetry(pendingProfilePath, removeDirectory);
   } catch (error) {
@@ -257,6 +300,10 @@ export async function cleanupStaleOAuthLoginSessions(
   const removeDirectory = options.removeDirectory ?? ((directoryPath: string) => rm(directoryPath, { recursive: true, force: true }));
   const removeFile = options.removeFile ?? ((filePath: string) => rm(filePath, { force: true }));
   const terminateProcessTree = options.terminateProcessTree ?? terminateWindowsProcessTree;
+  const credentialMode =
+    options.credentialStore && options.credentialTarget
+      ? { store: options.credentialStore, target: options.credentialTarget }
+      : undefined;
 
   const rootStat = await stat(profilesRoot).catch((error: unknown) => {
     if (isNotFoundError(error)) {
@@ -309,6 +356,14 @@ export async function cleanupStaleOAuthLoginSessions(
         const pidFilePath = getPidFilePathIfValid(profilesRoot, sessionId);
         if (pidFilePath) {
           await terminateOAuthLoginProcess(pidFilePath, terminateProcessTree, 0);
+        }
+        if (credentialMode) {
+          await finalizeAntigravityLoginCredential(
+            credentialMode,
+            getAntigravityLoginBackupCredentialTarget(profilesRoot, sessionId),
+            true,
+            false
+          );
         }
         await removeDirectoryWithRetry(entryPath, removeDirectory);
         if (pidFilePath && (await fileExists(pidFilePath))) {
@@ -422,7 +477,7 @@ async function readOAuthIdentity(oauthPath: string): Promise<ParsedOAuthIdentity
   }
 }
 
-function readOAuthIdentityFromText(value: string): ParsedOAuthIdentity {
+export function readOAuthIdentityFromText(value: string): ParsedOAuthIdentity {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
@@ -443,7 +498,7 @@ function readOAuthIdentityFromText(value: string): ParsedOAuthIdentity {
   return { accountEmail: findAnyEmail(parsed) };
 }
 
-function getAntigravityLoginCredentialMode(options: OAuthLoginSessionOptions):
+function getAntigravityLoginCredentialMode(options: AntigravityLoginCredentialOptions):
   | {
       store: CredentialStore;
       target: string;
@@ -457,6 +512,46 @@ function getAntigravityLoginCredentialMode(options: OAuthLoginSessionOptions):
     store: options.credentialStore ?? nativeAntigravityCredentialStore,
     target: options.credentialTarget ?? ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET
   };
+}
+
+async function prepareAntigravityLoginCredential(
+  credentialMode: { store: CredentialStore; target: string },
+  credentialBackupTarget: string
+): Promise<void> {
+  const previousPayload = await credentialMode.store.get(credentialMode.target);
+  if (previousPayload) {
+    await credentialMode.store.set(credentialBackupTarget, previousPayload);
+  } else {
+    await credentialMode.store.delete(credentialBackupTarget);
+  }
+
+  try {
+    await credentialMode.store.delete(credentialMode.target);
+  } catch (error) {
+    if (previousPayload) {
+      await credentialMode.store.set(credentialMode.target, previousPayload).catch(() => undefined);
+    }
+    await credentialMode.store.delete(credentialBackupTarget).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function finalizeAntigravityLoginCredential(
+  credentialMode: { store: CredentialStore; target: string },
+  credentialBackupTarget: string,
+  restorePreviousCredential: boolean,
+  deleteCurrentWhenBackupMissing: boolean
+): Promise<void> {
+  const previousPayload = await credentialMode.store.get(credentialBackupTarget);
+  if (restorePreviousCredential) {
+    if (previousPayload) {
+      await credentialMode.store.set(credentialMode.target, previousPayload);
+    } else if (deleteCurrentWhenBackupMissing) {
+      await credentialMode.store.delete(credentialMode.target);
+    }
+  }
+
+  await credentialMode.store.delete(credentialBackupTarget);
 }
 
 function findEmailByPreferredKey(value: unknown): string | undefined {
@@ -557,7 +652,7 @@ function normalizeEmail(value: string): string | undefined {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) ? trimmed : undefined;
 }
 
-function sanitizeProfileName(value: string): string {
+export function sanitizeOAuthProfileName(value: string): string {
   const sanitized = value
     .trim()
     .replace(/[^A-Za-z0-9_-]+/g, "_")

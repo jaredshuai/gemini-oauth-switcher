@@ -9,7 +9,7 @@ function statusToneClass(tone: StatusMessage["tone"], idleClass: string): string
 }
 
 export function StatusBar({ status, visibility }: { status: StatusMessage; visibility: StatusVisibility }) {
-  const className = statusToneClass(status.tone, "border-neutral-300 bg-white/70 text-neutral-600");
+  const className = statusToneClass(status.tone, "parchment-status text-neutral-700");
   const visibilityClass =
     visibility === "visible"
       ? "max-h-20 py-3 opacity-100"
@@ -27,7 +27,7 @@ export function StatusBar({ status, visibility }: { status: StatusMessage; visib
 }
 
 export function SettingsStatusBar({ status }: { status: StatusMessage }) {
-  const className = statusToneClass(status.tone, "border-neutral-300 bg-white/70 text-neutral-700");
+  const className = statusToneClass(status.tone, "parchment-status text-neutral-700");
 
   return <div className={`mt-3 rounded-md border px-3 py-2 text-sm ${className}`}>{status.text}</div>;
 }

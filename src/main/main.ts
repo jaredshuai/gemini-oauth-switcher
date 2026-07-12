@@ -1,18 +1,32 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, type OpenDialogOptions } from "electron";
-import type { AppSettings, OAuthLoginCancelRequest, OAuthLoginSaveRequest, OAuthLoginSession, RevealTarget, TrayBehavior } from "../shared/types";
-import { getDefaultProfilesRoot, getDefaultTargetAntigravityCliDir, getDefaultTargetGeminiDir, getDefaultTargetOAuthPath, getSettingsPath } from "./paths";
+import type { AppSettings, OAuthLoginCancelRequest, OAuthLoginInspectResult, OAuthLoginSaveRequest, OAuthLoginSession, RevealTarget, TargetTool, TrayBehavior } from "../shared/types";
+import { getAntigravityLoginRoot, getDefaultProfilesRoot, getDefaultTargetAntigravityCliDir, getDefaultTargetGeminiDir, getDefaultTargetOAuthPath, getSettingsPath } from "./paths";
 import {
   cleanupOAuthLoginSession,
   cleanupStaleOAuthLoginSessions,
   createOAuthLoginSession,
   inspectOAuthLoginSession,
+  readOAuthIdentityFromText,
+  sanitizeOAuthProfileName,
   saveOAuthLoginSession
 } from "./oauthLoginService";
 import { deleteProfile, getProfileOAuthPath, listProfiles, switchProfile, validateProfileName } from "./profileService";
 import { getProfileTargetConfig } from "./profileTargets";
-import { nativeAntigravityCredentialStore } from "./antigravityCredentialService";
+import {
+  ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET,
+  getAntigravityProfileCredentialTarget,
+  hashCredentialPayload,
+  nativeAntigravityCredentialStore
+} from "./antigravityCredentialService";
+import {
+  deleteAntigravityProfile,
+  listAntigravityProfiles,
+  registerCurrentAntigravityProfile,
+  switchAntigravityProfile
+} from "./antigravityProfileService";
 import { readSettings, saveSettings } from "./settings";
 import { collectLocalDiagnostics } from "./systemDiagnostics";
 import { startAutoUpdateChecks } from "./updateService";
@@ -43,14 +57,37 @@ function getConfiguredProfilesRoot(settings: AppSettings): string {
   return settings.profilesRoot || getDefaultProfilesRoot();
 }
 
-function getCredentialOptions(target: ReturnType<typeof getProfileTargetConfig>, profilesRoot: string) {
+function getCredentialOptions(target: ReturnType<typeof getProfileTargetConfig>) {
   return {
     credentialStore: target.credentialTarget ? nativeAntigravityCredentialStore : undefined,
     credentialTarget: target.credentialTarget,
     getProfileCredentialTarget: target.getProfileCredentialTarget
-      ? (profileName: string) => target.getProfileCredentialTarget?.(profilesRoot, profileName) ?? ""
+      ? (profileId: string) => target.getProfileCredentialTarget?.(profileId) ?? ""
       : undefined
   };
+}
+
+function normalizeProfileIdentifier(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error("Profile identifier is required");
+  }
+  return value.trim();
+}
+
+function getLoginRoot(targetTool: TargetTool, profilesRoot: string): string {
+  return targetTool === "antigravity-cli" ? getAntigravityLoginRoot(app.getPath("temp")) : profilesRoot;
+}
+
+function findAntigravityConflict(
+  inspection: OAuthLoginInspectResult,
+  settings: AppSettings
+): string | undefined {
+  const proposedName = inspection.proposedProfileName?.trim().toLowerCase();
+  const accountEmail = inspection.accountEmail?.trim().toLowerCase();
+  return settings.antigravityProfiles?.find((profile) =>
+    Boolean(accountEmail && profile.accountEmail?.toLowerCase() === accountEmail) ||
+    Boolean(proposedName && profile.name.toLowerCase() === proposedName)
+  )?.name;
 }
 
 async function openResolvedPath(targetPath: string): Promise<void> {
@@ -288,34 +325,48 @@ function registerIpcHandlers(): void {
     const profilesRoot = getConfiguredProfilesRoot(settings);
     const target = getProfileTargetConfig(rawTargetTool ?? settings.selectedTool);
 
+    if (target.tool === "antigravity-cli") {
+      return listAntigravityProfiles({
+        profiles: settings.antigravityProfiles ?? [],
+        credentialStore: nativeAntigravityCredentialStore,
+        credentialTarget: ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET
+      });
+    }
+
     return listProfiles({
       profilesRoot,
       targetOAuthPath: target.targetPath,
       profileFileRelativePath: target.profileFileRelativePath,
-      ...getCredentialOptions(target, profilesRoot)
+      includeMissingProfiles: false
     });
   });
 
-  ipcMain.handle("profiles:switch", async (_event, rawProfileName: unknown, rawTargetTool?: unknown) => {
-    const profileName = normalizeProfileName(rawProfileName);
+  ipcMain.handle("profiles:switch", async (_event, rawProfileIdentifier: unknown, rawTargetTool?: unknown) => {
     const settings = await readSettings(settingsPath());
     const profilesRoot = getConfiguredProfilesRoot(settings);
     const target = getProfileTargetConfig(rawTargetTool ?? settings.selectedTool);
-    const result = await switchProfile({
-      profilesRoot,
-      profileName,
-      targetOAuthPath: target.targetPath,
-      profileFileRelativePath: target.profileFileRelativePath,
-      profileFileLabel: target.profileFileLabel,
-      targetDirectoryLabel: target.targetDirectoryLabel,
-      ...getCredentialOptions(target, profilesRoot)
-    });
+    const profileIdentifier = normalizeProfileIdentifier(rawProfileIdentifier);
+    const result = target.tool === "antigravity-cli"
+      ? await switchAntigravityProfile({
+          profileId: profileIdentifier,
+          profiles: settings.antigravityProfiles ?? [],
+          credentialStore: nativeAntigravityCredentialStore,
+          credentialTarget: ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET
+        })
+      : await switchProfile({
+          profilesRoot,
+          profileName: validateProfileName(profileIdentifier),
+          targetOAuthPath: target.targetPath,
+          profileFileRelativePath: target.profileFileRelativePath,
+          profileFileLabel: target.profileFileLabel,
+          targetDirectoryLabel: target.targetDirectoryLabel
+        });
 
     await saveSettings(settingsPath(), {
       selectedTool: target.tool,
-      lastSelectedProfile: profileName,
+      lastSelectedProfile: profileIdentifier,
       lastSwitch: {
-        profileName,
+        profileName: result.profileName,
         switchedAt: Date.now(),
         verified: true,
         targetTool: target.tool
@@ -325,9 +376,31 @@ function registerIpcHandlers(): void {
     return result;
   });
 
-  ipcMain.handle("profiles:delete", async (_event, rawProfileName: unknown) => {
-    const profileName = normalizeProfileName(rawProfileName);
+  ipcMain.handle("profiles:delete", async (_event, rawProfileIdentifier: unknown, rawTargetTool?: unknown) => {
     const settings = await readSettings(settingsPath());
+    const target = getProfileTargetConfig(rawTargetTool ?? settings.selectedTool);
+    const profileIdentifier = normalizeProfileIdentifier(rawProfileIdentifier);
+    if (target.tool === "antigravity-cli") {
+      const deleted = await deleteAntigravityProfile({
+        profileId: profileIdentifier,
+        profiles: settings.antigravityProfiles ?? [],
+        credentialStore: nativeAntigravityCredentialStore,
+        credentialTarget: ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET
+      });
+      const nextNicknames = { ...(settings.profileNicknames ?? {}) };
+      delete nextNicknames[deleted.profile.id];
+      await saveSettings(settingsPath(), {
+        antigravityProfiles: deleted.profiles,
+        profileNicknames: nextNicknames,
+        lastSelectedProfile: settings.lastSelectedProfile === deleted.profile.id ? undefined : settings.lastSelectedProfile
+      });
+      return {
+        profileName: deleted.profile.name,
+        profilePath: ""
+      };
+    }
+
+    const profileName = validateProfileName(profileIdentifier);
     const result = await deleteProfile({
       profilesRoot: getConfiguredProfilesRoot(settings),
       profileName,
@@ -342,6 +415,55 @@ function registerIpcHandlers(): void {
     }
 
     return result;
+  });
+
+  ipcMain.handle("profiles:antigravity:registerCurrent", async () => {
+    const settings = await readSettings(settingsPath());
+    const payload = await nativeAntigravityCredentialStore.get(ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET);
+    if (!payload) {
+      throw new Error("当前没有可登记的 Antigravity 登录凭据。");
+    }
+
+    const accountEmail = readOAuthIdentityFromText(payload).accountEmail;
+    const profileName = accountEmail
+      ? sanitizeOAuthProfileName(accountEmail)
+      : `antigravity-account-${hashCredentialPayload(payload).slice(0, 8)}`;
+    const profileId = `agy-${randomUUID()}`;
+    const registered = await registerCurrentAntigravityProfile({
+      profileId,
+      name: profileName,
+      accountEmail,
+      profiles: settings.antigravityProfiles ?? [],
+      credentialStore: nativeAntigravityCredentialStore,
+      credentialTarget: ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET
+    });
+    const nextNicknames = { ...(settings.profileNicknames ?? {}) };
+    if (accountEmail && accountEmail !== profileName) {
+      nextNicknames[profileId] = accountEmail;
+    }
+
+    try {
+      await saveSettings(settingsPath(), {
+        selectedTool: "antigravity-cli",
+        antigravityProfiles: registered.profiles,
+        profileNicknames: nextNicknames
+      });
+    } catch (error) {
+      await nativeAntigravityCredentialStore.delete(getAntigravityProfileCredentialTarget(profileId)).catch(() => undefined);
+      throw error;
+    }
+
+    return {
+      sessionId: "current-antigravity",
+      targetTool: "antigravity-cli",
+      profileId,
+      profileName,
+      nickname: accountEmail,
+      profilePath: "",
+      oauthPath: "",
+      accountEmail,
+      sha256: registered.targetHash
+    };
   });
 
   ipcMain.handle("profiles:usage:refresh", async (_event, rawProfileName: unknown) => {
@@ -360,7 +482,8 @@ function registerIpcHandlers(): void {
     const profilesRoot = getConfiguredProfilesRoot(settings);
     const result = await listProfiles({
       profilesRoot,
-      targetOAuthPath: getDefaultTargetOAuthPath()
+      targetOAuthPath: getDefaultTargetOAuthPath(),
+      includeMissingProfiles: false
     });
 
     const usages = await Promise.all(
@@ -380,10 +503,13 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("oauthLogin:start", async (_event, rawTargetTool?: unknown) => {
     const settings = await readSettings(settingsPath());
+    const profilesRoot = getConfiguredProfilesRoot(settings);
     const target = getProfileTargetConfig(rawTargetTool ?? settings.selectedTool);
+    const loginRoot = getLoginRoot(target.tool, profilesRoot);
     const session = await createOAuthLoginSession({
-      profilesRoot: getConfiguredProfilesRoot(settings),
-      targetTool: target.tool
+      profilesRoot: loginRoot,
+      targetTool: target.tool,
+      ...getCredentialOptions(target)
     });
     oauthLoginSessions.set(session.sessionId, session);
 
@@ -393,32 +519,101 @@ function registerIpcHandlers(): void {
   ipcMain.handle("oauthLogin:inspect", async (_event, rawSessionId: unknown) => {
     const session = getOAuthLoginSession(rawSessionId);
     const settings = await readSettings(settingsPath());
-    const profilesRoot = getConfiguredProfilesRoot(settings);
     const target = getProfileTargetConfig(session.targetTool);
 
-    return inspectOAuthLoginSession({
-      profilesRoot,
+    const inspection = await inspectOAuthLoginSession({
+      profilesRoot: session.loginRoot,
       sessionId: session.sessionId,
       pendingProfilePath: session.pendingProfilePath,
       targetTool: session.targetTool,
-      ...getCredentialOptions(target, profilesRoot)
+      ...getCredentialOptions(target)
     });
+    if (target.tool !== "antigravity-cli") {
+      return inspection;
+    }
+
+    return {
+      ...inspection,
+      conflictProfileName: findAntigravityConflict(inspection, settings)
+    };
   });
 
   ipcMain.handle("oauthLogin:save", async (_event, rawRequest: unknown) => {
     const request = normalizeOAuthLoginSaveRequest(rawRequest);
     const session = getOAuthLoginSession(request.sessionId);
     const settings = await readSettings(settingsPath());
-    const profilesRoot = getConfiguredProfilesRoot(settings);
     const target = getProfileTargetConfig(session.targetTool);
+    if (target.tool === "antigravity-cli") {
+      const inspection = await inspectOAuthLoginSession({
+        profilesRoot: session.loginRoot,
+        sessionId: session.sessionId,
+        pendingProfilePath: session.pendingProfilePath,
+        targetTool: session.targetTool,
+        ...getCredentialOptions(target)
+      });
+      if (!inspection.oauthExists) {
+        throw new Error("Antigravity CLI login credential has not been created yet.");
+      }
+
+      const profileId = `agy-${randomUUID()}`;
+      const profileName = request.profileName?.trim() || inspection.proposedProfileName || "";
+      const registered = await registerCurrentAntigravityProfile({
+        profileId,
+        name: profileName,
+        accountEmail: inspection.accountEmail,
+        profiles: settings.antigravityProfiles ?? [],
+        credentialStore: nativeAntigravityCredentialStore,
+        credentialTarget: ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET
+      });
+      const nextNicknames = { ...(settings.profileNicknames ?? {}) };
+      const nickname = request.nickname?.trim() || inspection.proposedNickname;
+      if (nickname && nickname !== profileName) {
+        nextNicknames[profileId] = nickname;
+      }
+
+      try {
+        await saveSettings(settingsPath(), {
+          selectedTool: target.tool,
+          antigravityProfiles: registered.profiles,
+          profileNicknames: nextNicknames
+        });
+      } catch (error) {
+        await nativeAntigravityCredentialStore.delete(getAntigravityProfileCredentialTarget(profileId)).catch(() => undefined);
+        throw error;
+      }
+
+      await cleanupOAuthLoginSession({
+        profilesRoot: session.loginRoot,
+        sessionId: session.sessionId,
+        pendingProfilePath: session.pendingProfilePath,
+        pidFilePath: session.pidFilePath,
+        credentialBackupTarget: session.credentialBackupTarget,
+        targetTool: session.targetTool,
+        ...getCredentialOptions(target)
+      }).catch(() => undefined);
+      oauthLoginSessions.delete(session.sessionId);
+
+      return {
+        sessionId: session.sessionId,
+        targetTool: target.tool,
+        profileId,
+        profileName,
+        nickname,
+        profilePath: "",
+        oauthPath: "",
+        accountEmail: inspection.accountEmail,
+        sha256: registered.targetHash
+      };
+    }
+
     const result = await saveOAuthLoginSession({
-      profilesRoot,
+      profilesRoot: session.loginRoot,
       sessionId: session.sessionId,
       pendingProfilePath: session.pendingProfilePath,
       targetTool: session.targetTool,
       profileName: request.profileName,
       nickname: request.nickname,
-      ...getCredentialOptions(target, profilesRoot)
+      ...getCredentialOptions(target)
     });
 
     const nextNicknames = { ...(settings.profileNicknames ?? {}) };
@@ -432,10 +627,13 @@ function registerIpcHandlers(): void {
       profileNicknames: nextNicknames
     });
     await cleanupOAuthLoginSession({
-      profilesRoot,
+      profilesRoot: session.loginRoot,
       sessionId: session.sessionId,
       pendingProfilePath: session.pendingProfilePath,
-      pidFilePath: session.pidFilePath
+      pidFilePath: session.pidFilePath,
+      credentialBackupTarget: session.credentialBackupTarget,
+      targetTool: session.targetTool,
+      ...getCredentialOptions(target)
     }).catch(() => undefined);
     oauthLoginSessions.delete(session.sessionId);
 
@@ -451,11 +649,17 @@ function registerIpcHandlers(): void {
       throw new Error("Login session was not found. Start a new login first.");
     }
 
+    const target = getProfileTargetConfig(session?.targetTool ?? settings.selectedTool);
+    const loginRoot = session?.loginRoot ?? path.dirname(pendingProfilePath);
     await cleanupOAuthLoginSession({
-      profilesRoot: getConfiguredProfilesRoot(settings),
+      profilesRoot: loginRoot,
       sessionId: request.sessionId,
       pendingProfilePath,
-      pidFilePath: session?.pidFilePath
+      pidFilePath: session?.pidFilePath,
+      credentialBackupTarget: session?.credentialBackupTarget,
+      targetTool: session?.targetTool ?? target.tool,
+      restorePreviousCredential: true,
+      ...getCredentialOptions(target)
     });
     oauthLoginSessions.delete(request.sessionId);
   });
@@ -503,13 +707,19 @@ registerIpcHandlers();
 app.whenReady().then(async () => {
   createTray();
   const settings = await readSettings(settingsPath());
-  await cleanupStaleOAuthLoginSessions({
-    profilesRoot: getConfiguredProfilesRoot(settings)
-  })
-    .then(logStaleLoginCleanupResult)
-    .catch((error: unknown) => {
-      console.warn("Failed to run stale OAuth login cleanup.", error);
-    });
+  const profilesRoot = getConfiguredProfilesRoot(settings);
+  const antigravityTarget = getProfileTargetConfig("antigravity-cli");
+  for (const loginRoot of [profilesRoot, getAntigravityLoginRoot(app.getPath("temp"))]) {
+    await cleanupStaleOAuthLoginSessions({
+      profilesRoot: loginRoot,
+      credentialStore: nativeAntigravityCredentialStore,
+      credentialTarget: antigravityTarget.credentialTarget
+    })
+      .then(logStaleLoginCleanupResult)
+      .catch((error: unknown) => {
+        console.warn("Failed to run stale OAuth login cleanup.", error);
+      });
+  }
   await createWindow();
   startAutoUpdatesIfEnabled(settings);
 

@@ -22,9 +22,7 @@ describe("profileTargets", () => {
     expect(target.targetDir).toBe(path.join(homedir(), ".gemini", "antigravity-cli"));
     expect(target.profileFileLabel).toBe("Antigravity CLI credential");
     expect(target.credentialTarget).toBe("gemini:antigravity");
-    expect(target.getProfileCredentialTarget?.("C:\\Users\\alice\\.gemini-homes", "work")).toMatch(
-      /^gemini-oauth-switcher:antigravity-cli:[0-9a-f]{32}$/
-    );
+    expect(target.getProfileCredentialTarget?.("agy-work")).toBe("gemini-oauth-switcher:antigravity-cli:agy-work");
   });
 
   it("normalizes unknown target tools back to Gemini", () => {

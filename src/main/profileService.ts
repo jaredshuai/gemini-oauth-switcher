@@ -14,6 +14,7 @@ const targetOperationQueues = new Map<string, Promise<unknown>>();
 export interface ListProfilesOptions {
   profilesRoot: string;
   targetOAuthPath: string;
+  includeMissingProfiles?: boolean;
   profileFileRelativePath?: string;
   profileFileLabel?: string;
   targetDirectoryLabel?: string;
@@ -164,13 +165,16 @@ export async function listProfiles(options: ListProfilesOptions): Promise<Profil
         };
       })
   );
+  const visibleProfiles = options.includeMissingProfiles === false
+    ? profiles.filter((profile) => profile.exists)
+    : profiles;
 
   return {
     profilesRoot,
     targetGeminiDir,
     targetOAuthPath,
     targetHash,
-    profiles
+    profiles: visibleProfiles
   };
 }
 

@@ -1,4 +1,4 @@
-import { Clock, Copy, Pencil, RefreshCw, Shuffle, Trash2 } from "lucide-react";
+import { Clock, Copy, FolderKey, KeyRound, Pencil, RefreshCw, Shuffle, Trash2 } from "lucide-react";
 import type { ProfileInfo, ProfileUsageResult, TargetTool, UsageTier } from "../../shared/types";
 import { TOOL_LABELS } from "../constants";
 import {
@@ -46,17 +46,20 @@ export function ProfileRow({
   const displayName = nickname || profile.name;
   const isGeminiTool = selectedTool === "gemini";
   const toolLabels = TOOL_LABELS[selectedTool];
+  const AccountIcon = isGeminiTool ? FolderKey : KeyRound;
 
   return (
-    <div className="grid grid-cols-[minmax(260px,1fr)_320px_156px] items-center gap-3 px-5 py-4 text-sm">
-      <div className="flex min-w-0 items-start gap-3">
-        <span
-          className={`mt-2 h-2.5 w-2.5 shrink-0 rounded-full ${profile.isCurrent ? "bg-emerald-500" : "bg-neutral-300"}`}
+    <div className={`profile-row relative grid grid-cols-[minmax(260px,1fr)_320px_152px] items-center gap-3 px-5 py-4 text-sm ${profile.isCurrent ? "profile-row-current bg-emerald-50/35 before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-emerald-500" : "bg-transparent"}`}>
+      <div className="flex min-w-0 items-start gap-3.5">
+        <div
+          className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${profile.isCurrent ? "border-emerald-300 bg-emerald-100/70 text-emerald-700" : "border-[#d8cbb4] bg-[#fbf6e9] text-neutral-400"}`}
           title={profile.isCurrent ? "当前账号" : "可切换账号"}
-        />
+        >
+          <AccountIcon className="h-4 w-4" />
+        </div>
         <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="min-w-0 truncate font-semibold text-neutral-950" title={profile.oauthPath}>
+          <div className="flex min-w-0 items-center gap-1">
+            <span className="min-w-0 truncate text-[15px] font-semibold text-neutral-950" title={isGeminiTool ? profile.oauthPath : profile.name}>
               {displayName}
             </span>
             <button className="copy-icon-button" onClick={onCopyName} aria-label={`复制 ${profile.name}`} title="复制完整 profile 名称">
@@ -65,17 +68,17 @@ export function ProfileRow({
             <button className="copy-icon-button" onClick={onSetNickname} aria-label={`设置 ${profile.name} 的昵称`} title="设置昵称">
               <Pencil className="h-3.5 w-3.5" />
             </button>
-            {profile.isCurrent ? <span className="status-pill bg-emerald-100 text-emerald-800">当前</span> : null}
+            {profile.isCurrent ? <span className="status-pill ml-1 bg-emerald-100 text-emerald-800">当前</span> : null}
             {!profile.exists ? <span className="status-pill bg-amber-100 text-amber-800">{toolLabels.missingLabel}</span> : null}
           </div>
           {nickname ? (
-            <div className="mt-0.5 truncate font-mono text-[11px] text-neutral-500" title={profile.name}>
+            <div className="mt-1 truncate font-mono text-[10px] tracking-[0.04em] text-neutral-500" title={profile.name}>
               {profile.name}
             </div>
           ) : null}
-          {profile.oauthPath ? (
+          {isGeminiTool && profile.oauthPath ? (
             <div className="mt-1 flex min-w-0 items-center gap-1">
-              <span className="truncate font-mono text-[11px] text-neutral-400" title={profile.oauthPath}>
+              <span className="truncate font-mono text-[10px] text-neutral-400" title={profile.oauthPath}>
                 {profile.oauthPath}
               </span>
               <button
@@ -103,17 +106,15 @@ export function ProfileRow({
           <Shuffle className={isSwitching ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
           {profile.isCurrent ? "已使用" : isSwitching ? "切换中" : "切换"}
         </button>
-        {isGeminiTool ? (
-          <button
-            className="danger-icon-button"
-            onClick={onDelete}
-            disabled={profile.isCurrent || isDeleteDisabled}
-            aria-label={`删除 ${profile.name}`}
-            title={profile.isCurrent ? "当前账号不能删除，请先切换到其他账号" : "删除 profile 到回收站"}
-          >
-            <Trash2 className={isDeleting ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
-          </button>
-        ) : null}
+        <button
+          className="danger-icon-button"
+          onClick={onDelete}
+          disabled={profile.isCurrent || isDeleteDisabled}
+          aria-label={`删除 ${profile.name}`}
+          title={profile.isCurrent ? "当前账号不能删除，请先切换到其他账号" : isGeminiTool ? "删除 profile 到回收站" : "删除 Antigravity 账号"}
+        >
+          <Trash2 className={isDeleting ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
+        </button>
       </div>
     </div>
   );
@@ -163,13 +164,15 @@ function ProfileFileCell({ profile }: { profile: ProfileInfo }) {
   }
 
   return (
-    <div className="min-w-0">
-      <div className="flex items-center gap-2 text-xs font-semibold text-neutral-700">
-        <span className="h-2 w-2 rounded-full bg-emerald-500" />
-        登录凭据已就绪
+    <div className="min-w-0 border-l border-neutral-200 pl-4">
+      <div className="flex items-center gap-2 text-xs font-semibold text-neutral-800">
+        <span className="flex h-5 w-5 items-center justify-center rounded bg-emerald-100 text-emerald-700">
+          <KeyRound className="h-3 w-3" />
+        </span>
+        凭据已就绪
       </div>
       {profile.updatedAtMs ? (
-        <div className="mt-1 flex items-center gap-1 text-[11px] text-neutral-500">
+        <div className="mt-1.5 flex items-center gap-1 font-mono text-[10px] text-neutral-500">
           <Clock className="h-3 w-3" />
           更新于 {formatProfileUpdatedTime(profile.updatedAtMs)}
         </div>

@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { AppSettings, LastSwitchResult, TargetTool, TrayBehavior, WindowBounds } from "../shared/types";
+import type { AntigravityProfileRecord, AppSettings, LastSwitchResult, TargetTool, TrayBehavior, WindowBounds } from "../shared/types";
 import { getDefaultProfilesRoot } from "./paths";
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -88,6 +88,11 @@ function sanitizeSettings(value: unknown): AppSettings {
     settings.profileNicknames = profileNicknames;
   }
 
+  const antigravityProfiles = sanitizeAntigravityProfiles(input.antigravityProfiles);
+  if (antigravityProfiles.length > 0) {
+    settings.antigravityProfiles = antigravityProfiles;
+  }
+
   return settings;
 }
 
@@ -134,6 +139,42 @@ function sanitizeProfileNicknames(value: unknown): Record<string, string> | unde
   }
 
   return Object.fromEntries(entries);
+}
+
+function sanitizeAntigravityProfiles(value: unknown): AntigravityProfileRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const profiles: AntigravityProfileRecord[] = [];
+  const seenIds = new Set<string>();
+  for (const candidate of value.slice(0, 200)) {
+    if (!candidate || typeof candidate !== "object") {
+      continue;
+    }
+
+    const input = candidate as Partial<AntigravityProfileRecord>;
+    const id = typeof input.id === "string" ? input.id.trim() : "";
+    const name = typeof input.name === "string" ? input.name.trim() : "";
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u.test(id) || !name || name.length > 160 || seenIds.has(id)) {
+      continue;
+    }
+    if (!isFiniteNumber(input.createdAt) || input.createdAt <= 0 || !isFiniteNumber(input.updatedAt) || input.updatedAt <= 0) {
+      continue;
+    }
+
+    const accountEmail = typeof input.accountEmail === "string" ? input.accountEmail.trim().toLowerCase() : "";
+    profiles.push({
+      id,
+      name,
+      ...(accountEmail ? { accountEmail } : {}),
+      createdAt: Math.round(input.createdAt),
+      updatedAt: Math.round(input.updatedAt)
+    });
+    seenIds.add(id);
+  }
+
+  return profiles;
 }
 
 function sanitizeWindowBounds(value: unknown): WindowBounds | undefined {

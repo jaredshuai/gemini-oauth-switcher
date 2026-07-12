@@ -19,7 +19,7 @@ export interface ProfileTargetConfig {
   profileFileLabel: string;
   targetDirectoryLabel: string;
   credentialTarget?: string;
-  getProfileCredentialTarget?: (profilesRoot: string, profileName: string) => string;
+  getProfileCredentialTarget?: (profileId: string) => string;
 }
 
 export function normalizeTargetTool(value: unknown): TargetTool {

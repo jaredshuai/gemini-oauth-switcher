@@ -21,6 +21,10 @@ export function getDefaultTargetAntigravityCliSettingsPath(): string {
   return path.join(getDefaultTargetAntigravityCliDir(), "settings.json");
 }
 
+export function getAntigravityLoginRoot(tempRoot = os.tmpdir()): string {
+  return path.join(tempRoot, "gemini-oauth-switcher", "antigravity-login");
+}
+
 export function getSettingsPath(userDataPath: string): string {
   return path.join(userDataPath, "settings.json");
 }

@@ -86,6 +86,21 @@ describe("profileService", () => {
     });
   });
 
+  it("excludes directories without Gemini OAuth when missing profiles are disabled", async () => {
+    const root = await makeTempRoot();
+    await writeProfile(root, "gemini-account", "{\"account\":\"gemini\"}");
+    await writeAntigravityProfile(root, "antigravity-profile-old", "{\"account\":\"antigravity\"}");
+
+    const targetOAuthPath = path.join(root, "home", ".gemini", "oauth_creds.json");
+    const result = await listProfiles({
+      profilesRoot: root,
+      targetOAuthPath,
+      includeMissingProfiles: false
+    });
+
+    expect(result.profiles.map((profile) => profile.name)).toEqual(["gemini-account"]);
+  });
+
   it("returns an empty list when profilesRoot does not exist yet", async () => {
     const root = await makeTempRoot();
     const missingRoot = path.join(root, "missing-profiles");
