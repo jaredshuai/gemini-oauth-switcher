@@ -825,7 +825,7 @@ export function App() {
           </div>
           <div className="parchment-column-header grid grid-cols-[minmax(260px,1fr)_320px_152px] items-center gap-3 border-b px-5 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-500">
             <span>账号</span>
-            <span>用量</span>
+            <span>{usageDisplayModeDraft === "remaining" ? "剩余量" : "已用量"}</span>
             <span className="w-[6.5rem] text-left">操作</span>
           </div>
 
