@@ -28,6 +28,7 @@ type LaunchPowerShell = (script: string, title: string) => Promise<void>;
 type TerminateProcessTree = (pid: number) => Promise<void>;
 type OAuthIdentityResolver = (value: string) => Promise<ParsedOAuthIdentity>;
 type OAuthUserInfoFetcher = (accessToken: string) => Promise<unknown>;
+type OAuthAccessTokenRefresher = (refreshToken: string) => Promise<string | undefined>;
 
 interface PowerShellLaunchCommand {
   file: string;
@@ -99,6 +100,7 @@ export interface ParsedOAuthIdentity {
 
 export interface ResolveOAuthIdentityOptions {
   fetchUserInfo?: OAuthUserInfoFetcher;
+  refreshAccessToken?: OAuthAccessTokenRefresher;
   now?: () => number;
 }
 
@@ -523,12 +525,34 @@ export async function resolveOAuthIdentityFromText(
   }
 
   const accessToken = readFreshOAuthAccessToken(value, options.now?.() ?? Date.now());
-  if (!accessToken) {
-    return {};
+  if (accessToken) {
+    const identity = await resolveOAuthIdentityFromAccessToken(accessToken, options.fetchUserInfo);
+    if (identity.accountEmail) {
+      return identity;
+    }
   }
 
+  const refreshToken = readOAuthRefreshToken(value);
+  if (!refreshToken || !options.refreshAccessToken) {
+    return {};
+  }
   try {
-    const userInfo = await (options.fetchUserInfo ?? fetchGoogleOAuthUserInfo)(accessToken);
+    const refreshedAccessToken = await options.refreshAccessToken(refreshToken);
+    if (!refreshedAccessToken) {
+      return {};
+    }
+    return resolveOAuthIdentityFromAccessToken(refreshedAccessToken, options.fetchUserInfo);
+  } catch {
+    return {};
+  }
+}
+
+async function resolveOAuthIdentityFromAccessToken(
+  accessToken: string,
+  fetchUserInfo?: OAuthUserInfoFetcher
+): Promise<ParsedOAuthIdentity> {
+  try {
+    const userInfo = await (fetchUserInfo ?? fetchGoogleOAuthUserInfo)(accessToken);
     if (!userInfo || typeof userInfo !== "object") {
       return {};
     }
@@ -553,6 +577,16 @@ function readFreshOAuthAccessToken(value: string, nowMs: number): string | undef
     return Number.isFinite(expiryMs) && expiryMs > nowMs + ACCESS_TOKEN_EXPIRY_SKEW_MS
       ? accessToken
       : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readOAuthRefreshToken(value: string): string | undefined {
+  try {
+    const parsed = JSON.parse(value) as { token?: { refresh_token?: unknown } };
+    const refreshToken = parsed.token?.refresh_token;
+    return typeof refreshToken === "string" && refreshToken ? refreshToken : undefined;
   } catch {
     return undefined;
   }

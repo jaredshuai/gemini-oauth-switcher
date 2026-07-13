@@ -28,6 +28,11 @@ interface QueryAntigravityUsageOptions {
   nowMs?: () => number;
 }
 
+interface RefreshAntigravityAccessTokenOptions {
+  oauthClients?: AntigravityOAuthClient[];
+  fetchImpl?: FetchLike;
+}
+
 interface AntigravityCredential {
   token?: {
     access_token?: unknown;
@@ -124,6 +129,14 @@ export async function queryAntigravityUsage(
       nowMs()
     );
   }
+}
+
+export async function refreshAntigravityAccessToken(
+  refreshToken: string,
+  options: RefreshAntigravityAccessTokenOptions = {}
+): Promise<string | undefined> {
+  const oauthClients = options.oauthClients ?? await resolveInstalledAntigravityOAuthClients();
+  return refreshAccessToken(refreshToken, oauthClients, options.fetchImpl ?? createTimeoutFetch(10_000));
 }
 
 function readRefreshToken(credential: AntigravityCredential): string | undefined {

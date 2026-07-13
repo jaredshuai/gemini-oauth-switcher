@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { queryAntigravityUsage } from "../src/main/antigravityUsageService";
+import { queryAntigravityUsage, refreshAntigravityAccessToken } from "../src/main/antigravityUsageService";
 import type { CredentialStore } from "../src/main/antigravityCredentialService";
 
 function createMemoryCredentialStore(payload?: string): CredentialStore {
@@ -255,6 +255,21 @@ describe("antigravityUsageService", () => {
       groups: [{ tiers: [{ utilization: 25 }] }]
     });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("exposes Antigravity token refresh for identity resolution", async () => {
+    const fetchImpl = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      expect(String(url)).toBe("https://oauth2.googleapis.com/token");
+      const body = new URLSearchParams(String(init?.body));
+      expect(body.get("refresh_token")).toBe("stable-refresh-token");
+      return response(200, { access_token: "identity-access-token" });
+    });
+
+    await expect(refreshAntigravityAccessToken("stable-refresh-token", {
+      oauthClients: [{ clientId: "identity-client", clientSecret: "identity-secret" }],
+      fetchImpl
+    })).resolves.toBe("identity-access-token");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("refreshes once and retries when a fresh access token receives HTTP 401", async () => {

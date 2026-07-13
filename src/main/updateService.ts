@@ -19,6 +19,7 @@ interface UpdateDialogOptions {
 interface AutoUpdaterLike {
   autoDownload: boolean;
   autoInstallOnAppQuit: boolean;
+  on(eventName: "update-available", listener: (info: { version?: string }) => void): unknown;
   on(eventName: "update-downloaded", listener: (info: { version?: string }) => void): unknown;
   on(eventName: "error", listener: (error: unknown) => void): unknown;
   checkForUpdates(): Promise<unknown>;
@@ -53,6 +54,8 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
   private timer: unknown;
   private updater?: AutoUpdaterLike;
   private updaterPromise?: Promise<AutoUpdaterLike>;
+  private announcedUpdateVersion?: string;
+  private downloadNoticePromise?: Promise<void>;
 
   constructor(private readonly options: AutoUpdateManagerOptions) {
     this.updater = options.updater;
@@ -103,6 +106,8 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
 
   private disable(): void {
     this.enabled = false;
+    this.announcedUpdateVersion = undefined;
+    this.downloadNoticePromise = undefined;
     if (this.timer !== undefined) {
       const clearTimeoutFn = this.options.clearTimeoutFn ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>));
       clearTimeoutFn(this.timer);
@@ -143,17 +148,48 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
         this.logWarning("Auto update check failed.", error);
       }
     });
+    updater.on("update-available", (info) => {
+      if (!this.enabled) {
+        return;
+      }
+
+      const versionKey = info.version?.trim() || "unknown";
+      if (this.announcedUpdateVersion === versionKey) {
+        return;
+      }
+      this.announcedUpdateVersion = versionKey;
+
+      const noticePromise = showUpdateDownloadStarted({
+        showMessageBox: this.options.showMessageBox,
+        version: info.version
+      }).catch((error: unknown) => {
+        this.logWarning("Failed to show update download notice.", error);
+      });
+      this.downloadNoticePromise = noticePromise;
+      void noticePromise.finally(() => {
+        if (this.downloadNoticePromise === noticePromise) {
+          this.downloadNoticePromise = undefined;
+        }
+      });
+    });
     updater.on("update-downloaded", (info) => {
       if (!this.enabled) {
         return;
       }
-      void promptToInstallUpdate({
-        updater,
-        showMessageBox: this.options.showMessageBox,
-        version: info.version,
-        isEnabled: () => this.enabled,
-        prepareToQuitForUpdate: this.options.prepareToQuitForUpdate
-      }).catch((error: unknown) => {
+      const downloadNoticePromise = this.downloadNoticePromise;
+      void (async () => {
+        await downloadNoticePromise;
+        if (!this.enabled) {
+          return;
+        }
+        await promptToInstallUpdate({
+          updater,
+          showMessageBox: this.options.showMessageBox,
+          version: info.version,
+          isEnabled: () => this.enabled,
+          prepareToQuitForUpdate: this.options.prepareToQuitForUpdate
+        });
+      })().catch((error: unknown) => {
         this.logWarning("Failed to prompt for update installation.", error);
       });
     });
@@ -189,6 +225,22 @@ async function loadAutoUpdater(): Promise<AutoUpdaterLike> {
   return electronUpdater.autoUpdater as AutoUpdaterLike;
 }
 
+async function showUpdateDownloadStarted(options: {
+  showMessageBox: (options: UpdateDialogOptions) => Promise<{ response: number }>;
+  version?: string;
+}): Promise<void> {
+  const versionLabel = options.version ? `新版本 ${options.version}` : "新版本";
+  await options.showMessageBox({
+    type: "info",
+    buttons: ["知道了"],
+    defaultId: 0,
+    cancelId: 0,
+    title: "发现新版本",
+    message: `${versionLabel} 正在下载`,
+    detail: "更新会在后台继续下载。下载完成后会再次提示安装，请保持应用运行。"
+  });
+}
+
 async function promptToInstallUpdate(options: {
   updater: AutoUpdaterLike;
   showMessageBox: (options: UpdateDialogOptions) => Promise<{ response: number }>;
@@ -196,14 +248,14 @@ async function promptToInstallUpdate(options: {
   isEnabled: () => boolean;
   prepareToQuitForUpdate: () => void;
 }): Promise<void> {
-  const versionText = options.version ? ` ${options.version}` : "";
+  const versionLabel = options.version ? `新版本 ${options.version}` : "新版本";
   const result = await options.showMessageBox({
     type: "info",
     buttons: ["重启安装", "稍后"],
     defaultId: 0,
     cancelId: 1,
     title: "发现新版本",
-    message: `新版本${versionText}已下载`,
+    message: `${versionLabel} 已下载`,
     detail: "重启应用后会自动安装更新。当前账号目录和 OAuth 文件不会被修改。"
   });
 

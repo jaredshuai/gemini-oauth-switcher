@@ -112,6 +112,35 @@ describe("oauthLoginService", () => {
     expect(identity).toEqual({});
   });
 
+  it("refreshes an expired Antigravity access token before requesting UserInfo", async () => {
+    const refreshedTokens: string[] = [];
+    const requestedTokens: string[] = [];
+    const identity = await resolveOAuthIdentityFromText(
+      JSON.stringify({
+        token: {
+          access_token: "expired-access-token",
+          refresh_token: "stable-refresh-token",
+          expiry: "2026-07-12T08:00:00.000Z"
+        }
+      }),
+      {
+        now: () => new Date("2026-07-12T09:00:00.000Z").getTime(),
+        refreshAccessToken: async (refreshToken) => {
+          refreshedTokens.push(refreshToken);
+          return "refreshed-access-token";
+        },
+        fetchUserInfo: async (accessToken) => {
+          requestedTokens.push(accessToken);
+          return { email: "Restored.User@Gmail.com" };
+        }
+      }
+    );
+
+    expect(refreshedTokens).toEqual(["stable-refresh-token"]);
+    expect(requestedTokens).toEqual(["refreshed-access-token"]);
+    expect(identity).toEqual({ accountEmail: "restored.user@gmail.com" });
+  });
+
   it("falls back safely when the UserInfo request fails", async () => {
     const identity = await resolveOAuthIdentityFromText(
       JSON.stringify({

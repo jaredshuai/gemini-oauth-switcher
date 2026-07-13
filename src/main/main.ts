@@ -32,7 +32,7 @@ import { readSettings, saveSettings } from "./settings";
 import { collectLocalDiagnostics } from "./systemDiagnostics";
 import { createAutoUpdateManager, type AutoUpdateManager } from "./updateService";
 import { queryGeminiUsageFromOAuthFile } from "./usageService";
-import { queryAntigravityUsage } from "./antigravityUsageService";
+import { queryAntigravityUsage, refreshAntigravityAccessToken } from "./antigravityUsageService";
 import { persistWindowBoundsBeforeClose, shouldHideWindowOnClose } from "./windowLifecycle";
 
 let mainWindow: BrowserWindow | undefined;
@@ -89,6 +89,12 @@ function getCredentialOptions(target: ReturnType<typeof getProfileTargetConfig>)
       ? (profileId: string) => target.getProfileCredentialTarget?.(profileId) ?? ""
       : undefined
   };
+}
+
+function resolveAntigravityIdentity(payload: string) {
+  return resolveOAuthIdentityFromText(payload, {
+    refreshAccessToken: refreshAntigravityAccessToken
+  });
 }
 
 function normalizeProfileIdentifier(value: unknown): string {
@@ -372,7 +378,7 @@ function registerIpcHandlers(): void {
         profiles: settings.antigravityProfiles ?? [],
         credentialStore: nativeAntigravityCredentialStore,
         credentialTarget: ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET,
-        resolveIdentity: resolveOAuthIdentityFromText
+        resolveIdentity: resolveAntigravityIdentity
       });
       const profiles = identityResolution.changed
         ? (await saveSettings(settingsPath(), { antigravityProfiles: identityResolution.profiles })).antigravityProfiles
@@ -477,7 +483,7 @@ function registerIpcHandlers(): void {
       throw new Error("当前没有可登记的 Antigravity 登录凭据。");
     }
 
-    const accountEmail = (await resolveOAuthIdentityFromText(payload)).accountEmail;
+    const accountEmail = (await resolveAntigravityIdentity(payload)).accountEmail;
     const profileName = accountEmail
       ? sanitizeOAuthProfileName(accountEmail)
       : `antigravity-account-${hashCredentialPayload(payload).slice(0, 8)}`;
@@ -610,6 +616,7 @@ function registerIpcHandlers(): void {
       sessionId: session.sessionId,
       pendingProfilePath: session.pendingProfilePath,
       targetTool: session.targetTool,
+      resolveIdentity: target.tool === "antigravity-cli" ? resolveAntigravityIdentity : undefined,
       ...getCredentialOptions(target)
     });
     if (target.tool !== "antigravity-cli") {
@@ -633,6 +640,7 @@ function registerIpcHandlers(): void {
         sessionId: session.sessionId,
         pendingProfilePath: session.pendingProfilePath,
         targetTool: session.targetTool,
+        resolveIdentity: resolveAntigravityIdentity,
         ...getCredentialOptions(target)
       });
       if (!inspection.oauthExists) {

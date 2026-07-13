@@ -53,6 +53,71 @@ describe("auto update checks", () => {
     expect(actions).toEqual(["prepare", "install"]);
   });
 
+  it("notifies immediately when an update starts downloading", async () => {
+    const { updater, listeners } = createFakeUpdater();
+    const showMessageBox = vi.fn(async () => ({ response: 0 }));
+    const manager = createAutoUpdateManager({
+      isPackaged: true,
+      isPortable: false,
+      updater,
+      setTimeoutFn: () => Symbol("timer"),
+      clearTimeoutFn: () => undefined,
+      showMessageBox,
+      prepareToQuitForUpdate: vi.fn()
+    });
+
+    await manager.setEnabled(true);
+    listeners.get("update-available")?.({ version: "0.2.3" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(showMessageBox).toHaveBeenCalledWith({
+      type: "info",
+      buttons: ["知道了"],
+      defaultId: 0,
+      cancelId: 0,
+      title: "发现新版本",
+      message: "新版本 0.2.3 正在下载",
+      detail: "更新会在后台继续下载。下载完成后会再次提示安装，请保持应用运行。"
+    });
+  });
+
+  it("waits for the download notice before showing the install prompt", async () => {
+    const { updater, listeners } = createFakeUpdater();
+    let closeDownloadNotice: (() => void) | undefined;
+    const downloadNotice = new Promise<void>((resolve) => {
+      closeDownloadNotice = resolve;
+    });
+    const shownMessages: string[] = [];
+    const showMessageBox = vi.fn(async (options: { message: string }) => {
+      shownMessages.push(options.message);
+      if (shownMessages.length === 1) {
+        await downloadNotice;
+      }
+      return { response: 1 };
+    });
+    const manager = createAutoUpdateManager({
+      isPackaged: true,
+      isPortable: false,
+      updater,
+      setTimeoutFn: () => Symbol("timer"),
+      clearTimeoutFn: () => undefined,
+      showMessageBox,
+      prepareToQuitForUpdate: vi.fn()
+    });
+
+    await manager.setEnabled(true);
+    listeners.get("update-available")?.({ version: "0.2.3" });
+    listeners.get("update-downloaded")?.({ version: "0.2.3" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(shownMessages).toEqual(["新版本 0.2.3 正在下载"]);
+
+    closeDownloadNotice?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(shownMessages).toEqual(["新版本 0.2.3 正在下载", "新版本 0.2.3 已下载"]);
+  });
+
   it("cancels the pending check and suppresses installation when disabled", async () => {
     const { updater, listeners } = createFakeUpdater();
     const timer = Symbol("timer");
