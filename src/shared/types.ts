@@ -12,6 +12,12 @@ export type RevealTarget = "profilesRoot" | "targetGeminiDir" | "targetAntigravi
 export type UsageDisplayMode = "used" | "remaining";
 export type UiTheme = "classic" | "rpg-parchment";
 
+export interface AppRuntimeInfo {
+  isPackaged: boolean;
+  isPortable: boolean;
+  version: string;
+}
+
 export interface AntigravityProfileRecord {
   id: string;
   name: string;
@@ -165,6 +171,7 @@ export interface OAuthLoginCancelRequest {
 }
 
 export interface GeminiSwitcherApi {
+  getRuntimeInfo(): Promise<AppRuntimeInfo>;
   getSettings(): Promise<AppSettings>;
   saveSettings(settings: Partial<AppSettings>): Promise<AppSettings>;
   listProfiles(targetTool?: TargetTool): Promise<ProfileListResult>;

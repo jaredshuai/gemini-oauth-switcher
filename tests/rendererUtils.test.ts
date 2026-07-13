@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ProfileInfo } from "../src/shared/types";
+import * as rendererUtils from "../src/renderer/utils";
 import {
   describeUsageFailure,
   formatUsageAriaLabel,
@@ -10,6 +11,16 @@ import {
 } from "../src/renderer/utils";
 
 describe("renderer utils", () => {
+  it("hides the auto-update setting for portable builds", () => {
+    const shouldShowAutoUpdateSetting = (rendererUtils as typeof rendererUtils & {
+      shouldShowAutoUpdateSetting?: (runtime: { isPortable: boolean }) => boolean;
+    }).shouldShowAutoUpdateSetting;
+
+    expect(shouldShowAutoUpdateSetting).toBeTypeOf("function");
+    expect(shouldShowAutoUpdateSetting!({ isPortable: true })).toBe(false);
+    expect(shouldShowAutoUpdateSetting!({ isPortable: false })).toBe(true);
+  });
+
   it("uses a resolved account email when no custom nickname exists", () => {
     const profile: ProfileInfo = {
       id: "agy-current",

@@ -2,6 +2,7 @@ import { Activity, Plus, RefreshCw, Settings } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import type {
   AppSettings,
+  AppRuntimeInfo,
   LastSwitchResult,
   LocalDiagnosticsResult,
   OAuthLoginInspectResult,
@@ -24,10 +25,11 @@ import { StatusBar } from "./components/StatusBar";
 import { TargetToolSwitch } from "./components/TargetToolSwitch";
 import { emptyResult, TOOL_LABELS } from "./constants";
 import type { StatusMessage, StatusVisibility } from "./types";
-import { copyText, describeUsageFailure, getApi, getErrorMessage, getProfileDisplayName, getProfileKey } from "./utils";
+import { copyText, describeUsageFailure, getApi, getErrorMessage, getProfileDisplayName, getProfileKey, shouldShowAutoUpdateSetting } from "./utils";
 
 export function App() {
   const [settings, setSettings] = useState<AppSettings>({ profilesRoot: "" });
+  const [runtimeInfo, setRuntimeInfo] = useState<AppRuntimeInfo>({ isPackaged: false, isPortable: false, version: "" });
   const [profilesRootDraft, setProfilesRootDraft] = useState("");
   const [trayBehaviorDraft, setTrayBehaviorDraft] = useState<TrayBehavior>("exit");
   const [autoUpdateEnabledDraft, setAutoUpdateEnabledDraft] = useState(true);
@@ -128,17 +130,19 @@ export function App() {
 
     async function boot() {
       try {
-        const [nextSettings, diagnostics] = await Promise.all([
+        const [nextSettings, diagnostics, nextRuntimeInfo] = await Promise.all([
           getApi().getSettings(),
           getApi()
             .getLocalDiagnostics()
-            .catch(() => undefined)
+            .catch(() => undefined),
+          getApi().getRuntimeInfo()
         ]);
         if (!mounted) {
           return;
         }
 
         setSettings(nextSettings);
+        setRuntimeInfo(nextRuntimeInfo);
         const nextSelectedTool = nextSettings.selectedTool ?? "gemini";
         setSelectedTool(nextSelectedTool);
         setLocalDiagnostics(diagnostics);
@@ -901,6 +905,7 @@ export function App() {
             profilesRoot={settings.profilesRoot}
             trayBehavior={trayBehaviorDraft}
             autoUpdateEnabled={autoUpdateEnabledDraft}
+            showAutoUpdateSetting={shouldShowAutoUpdateSetting(runtimeInfo)}
             usageDisplayMode={usageDisplayModeDraft}
             uiTheme={uiThemeDraft}
             isSaving={isSavingSettings}

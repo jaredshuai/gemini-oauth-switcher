@@ -30,7 +30,7 @@ import {
 } from "./antigravityProfileService";
 import { readSettings, saveSettings } from "./settings";
 import { collectLocalDiagnostics } from "./systemDiagnostics";
-import { startAutoUpdateChecks } from "./updateService";
+import { createAutoUpdateManager, type AutoUpdateManager } from "./updateService";
 import { queryGeminiUsageFromOAuthFile } from "./usageService";
 import { queryAntigravityUsage } from "./antigravityUsageService";
 import { persistWindowBoundsBeforeClose, shouldHideWindowOnClose } from "./windowLifecycle";
@@ -39,6 +39,7 @@ let mainWindow: BrowserWindow | undefined;
 let tray: Tray | undefined;
 let isQuitting = false;
 let trayBehavior: TrayBehavior = "exit";
+let autoUpdateManager: AutoUpdateManager | undefined;
 const oauthLoginSessions = new Map<string, OAuthLoginSession>();
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
@@ -261,17 +262,21 @@ function logStaleLoginCleanupResult(result: { failed: string[]; skipped: string[
   }
 }
 
-function startAutoUpdatesIfEnabled(settings: AppSettings): void {
-  void startAutoUpdateChecks({
-    settings,
+function syncAutoUpdateSetting(settings: AppSettings): void {
+  autoUpdateManager ??= createAutoUpdateManager({
     isPackaged: app.isPackaged,
     isPortable: Boolean(process.env.PORTABLE_EXECUTABLE_DIR),
     showMessageBox: (options) => (mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options)),
+    prepareToQuitForUpdate: () => {
+      isQuitting = true;
+    },
     logWarning: (message, error) => {
       console.warn(message, error);
     }
-  }).catch((error: unknown) => {
-    console.warn("Failed to initialize auto updates.", error);
+  });
+
+  void autoUpdateManager.setEnabled(settings.autoUpdateEnabled !== false).catch((error: unknown) => {
+    console.warn("Failed to update automatic update settings.", error);
   });
 }
 
@@ -341,13 +346,19 @@ async function createWindow(): Promise<void> {
 }
 
 function registerIpcHandlers(): void {
+  ipcMain.handle("app:runtimeInfo", () => ({
+    isPackaged: app.isPackaged,
+    isPortable: Boolean(process.env.PORTABLE_EXECUTABLE_DIR),
+    version: app.getVersion()
+  }));
+
   ipcMain.handle("settings:get", async () => readSettings(settingsPath()));
 
   ipcMain.handle("settings:save", async (_event, patch: Partial<AppSettings>) => {
     const nextSettings = await saveSettings(settingsPath(), patch);
     trayBehavior = nextSettings.trayBehavior ?? "exit";
     applyWindowChromeTheme(nextSettings);
-    startAutoUpdatesIfEnabled(nextSettings);
+    syncAutoUpdateSetting(nextSettings);
     return nextSettings;
   });
 
@@ -794,7 +805,7 @@ app.whenReady().then(async () => {
       });
   }
   await createWindow();
-  startAutoUpdatesIfEnabled(settings);
+  syncAutoUpdateSetting(settings);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

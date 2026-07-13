@@ -25,6 +25,8 @@ jobs:
 
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
     steps:
@@ -45,6 +47,21 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify release tag matches package version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: node scripts/verify-release-tag.mjs "${{ github.ref_name }}"
+
+      - name: Require Windows signing certificate for releases
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CSC_LINK)) {
+            throw "Missing WINDOWS_CSC_LINK repository secret. Refusing to publish unsigned release binaries."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:CSC_KEY_PASSWORD)) {
+            throw "Missing WINDOWS_CSC_KEY_PASSWORD repository secret. Refusing to publish unsigned release binaries."
+          }
+
       - name: Verify no OAuth credentials are tracked
         shell: pwsh
         run: |
@@ -61,6 +78,24 @@ jobs:
         run: |
           pnpm build
           pnpm exec electron-builder --win --publish never
+
+      - name: Verify release Authenticode signatures
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $releaseExecutables = @(
+            Get-ChildItem -Path release -Filter 'Gemini-OAuth-Switcher-*-setup-x64.exe'
+            Get-ChildItem -Path release -Filter 'Gemini-OAuth-Switcher-*-portable-x64.exe'
+          )
+          if ($releaseExecutables.Count -ne 2) {
+            throw "Expected one signed installer and one signed portable executable, found $($releaseExecutables.Count)."
+          }
+          foreach ($executable in $releaseExecutables) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $executable.FullName
+            if ($signature.Status -ne 'Valid') {
+              throw "Invalid Authenticode signature for $($executable.Name): $($signature.Status)"
+            }
+          }
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

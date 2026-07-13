@@ -1,4 +1,4 @@
-import type { ProfileInfo, ProfileUsageResult, TargetTool, UsageDisplayMode } from "../shared/types";
+import type { AppRuntimeInfo, ProfileInfo, ProfileUsageResult, TargetTool, UsageDisplayMode } from "../shared/types";
 
 interface ElapsedSuffixes {
   now: string;
@@ -44,6 +44,10 @@ export function formatProfileUpdatedTime(value: number): string {
 }
 
 export const formatSwitchRelativeTime = formatProfileUpdatedTime;
+
+export function shouldShowAutoUpdateSetting(runtime: Pick<AppRuntimeInfo, "isPortable">): boolean {
+  return !runtime.isPortable;
+}
 
 export function clampPercentage(value: number): number {
   return Math.min(100, Math.max(0, Math.round(value)));

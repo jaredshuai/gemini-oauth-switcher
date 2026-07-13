@@ -154,6 +154,20 @@ agy
 - `pnpm dist:win:installer` 只生成安装包。
 - `pnpm dist:win:portable` 只生成 portable exe。
 - 安装包按用户安装，不需要管理员权限；卸载时不会删除用户配置和账号目录。
+- 自动更新只支持 NSIS 安装版；portable 版需要手动下载新版本。
+
+## 发布与自动更新
+
+正式版本通过 `vX.Y.Z` tag 触发 GitHub Actions。发布前必须同时满足：
+
+1. 使用 `pnpm version X.Y.Z --no-git-tag-version` 更新 `package.json` 版本并提交。
+2. tag 必须与包版本完全一致，例如包版本 `0.2.0` 只能使用 `v0.2.0`。
+3. GitHub 仓库配置 `WINDOWS_CSC_LINK` 和 `WINDOWS_CSC_KEY_PASSWORD` secrets。前者是 Windows 代码签名 PFX 的 Base64 内容或可访问地址，后者是证书密码。
+4. 推送 `main` 后创建并推送 tag：`git tag vX.Y.Z`、`git push origin vX.Y.Z`。
+
+Release workflow 会校验 tag、构建 NSIS 与 portable、验证两个 exe 的 Authenticode 签名，并上传安装包、portable、blockmap 和 `latest.yml`。缺少签名证书或签名无效时不会创建 GitHub Release。
+
+安装版启动后会按设置检查 GitHub Release。下载完成后选择“重启安装”会先退出托盘与窗口生命周期，再启动安装；关闭自动更新会取消尚未执行的检查，并禁止当前会话自动安装。
 
 ## 技术栈
 

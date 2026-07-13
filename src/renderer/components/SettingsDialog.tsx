@@ -12,6 +12,7 @@ export function SettingsDialog({
   profilesRoot,
   trayBehavior,
   autoUpdateEnabled,
+  showAutoUpdateSetting,
   usageDisplayMode,
   uiTheme,
   isSaving,
@@ -37,6 +38,7 @@ export function SettingsDialog({
   profilesRoot: string;
   trayBehavior: TrayBehavior;
   autoUpdateEnabled: boolean;
+  showAutoUpdateSetting: boolean;
   usageDisplayMode: UsageDisplayMode;
   uiTheme: UiTheme;
   isSaving: boolean;
@@ -155,31 +157,33 @@ export function SettingsDialog({
               </div>
             </div>
 
-            <div className="settings-row mt-5">
-              <div className="settings-row-copy">
-                <div className="settings-row-title text-sm font-semibold text-neutral-800">自动更新</div>
+            {showAutoUpdateSetting ? (
+              <div className="settings-row mt-5">
+                <div className="settings-row-copy">
+                  <div className="settings-row-title text-sm font-semibold text-neutral-800">自动更新</div>
+                </div>
+                <div className="settings-segment mt-2 inline-flex overflow-hidden rounded-md border border-neutral-300 bg-white/70 p-1">
+                  <button
+                    className={`settings-segment-option rounded px-3 py-1.5 text-sm font-semibold transition ${
+                      autoUpdateEnabled ? "settings-segment-active bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
+                    }`}
+                    onClick={() => void onAutoUpdateEnabledChange(true)}
+                    disabled={isSaving || isSavingAutoUpdate}
+                  >
+                    开启
+                  </button>
+                  <button
+                    className={`settings-segment-option rounded px-3 py-1.5 text-sm font-semibold transition ${
+                      !autoUpdateEnabled ? "settings-segment-active bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
+                    }`}
+                    onClick={() => void onAutoUpdateEnabledChange(false)}
+                    disabled={isSaving || isSavingAutoUpdate}
+                  >
+                    关闭
+                  </button>
+                </div>
               </div>
-              <div className="settings-segment mt-2 inline-flex overflow-hidden rounded-md border border-neutral-300 bg-white/70 p-1">
-                <button
-                  className={`settings-segment-option rounded px-3 py-1.5 text-sm font-semibold transition ${
-                    autoUpdateEnabled ? "settings-segment-active bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
-                  }`}
-                  onClick={() => void onAutoUpdateEnabledChange(true)}
-                  disabled={isSaving || isSavingAutoUpdate}
-                >
-                  开启
-                </button>
-                <button
-                  className={`settings-segment-option rounded px-3 py-1.5 text-sm font-semibold transition ${
-                    !autoUpdateEnabled ? "settings-segment-active bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
-                  }`}
-                  onClick={() => void onAutoUpdateEnabledChange(false)}
-                  disabled={isSaving || isSavingAutoUpdate}
-                >
-                  关闭
-                </button>
-              </div>
-            </div>
+            ) : null}
 
             <div className="settings-row mt-5">
               <div className="settings-row-copy">
