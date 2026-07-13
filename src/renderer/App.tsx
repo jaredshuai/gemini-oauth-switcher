@@ -780,7 +780,8 @@ export function App() {
 
   return (
     <main className="app-parchment min-h-screen text-neutral-950 antialiased" data-theme={uiThemeDraft}>
-      <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 pb-6 pt-5">
+      <div className="window-drag-region" aria-hidden="true" />
+      <div className="mx-auto flex min-h-[calc(100vh-2.25rem)] w-full max-w-6xl flex-col px-6 pb-6 pt-5">
         <header className="app-header flex items-center justify-between gap-4 border-b pb-3.5">
           <h1 className="flex shrink-0 items-center gap-1.5 text-xl font-semibold text-neutral-950">
             <TargetToolSwitch selectedTool={selectedTool} disabled={isToolSwitchDisabled} onChange={selectTargetTool} />

@@ -42,6 +42,13 @@ button:focus-visible {
   box-shadow: inset 0 0 0 1px rgba(88, 57, 25, 0.2), inset 0 0 42px rgba(88, 57, 25, 0.08);
 }
 
+.window-drag-region {
+  height: 2.25rem;
+  flex: 0 0 auto;
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
 .app-header {
   border-color: rgba(91, 60, 29, 0.42);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5), 0 3px 0 -2px rgba(91, 60, 29, 0.18);

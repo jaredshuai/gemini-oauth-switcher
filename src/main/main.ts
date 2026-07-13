@@ -42,6 +42,27 @@ let trayBehavior: TrayBehavior = "exit";
 const oauthLoginSessions = new Map<string, OAuthLoginSession>();
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
+const WINDOW_TITLE_BAR_HEIGHT = 36;
+
+function getWindowChromeTheme(uiTheme: AppSettings["uiTheme"]): { backgroundColor: string; symbolColor: string } {
+  return uiTheme === "rpg-parchment"
+    ? { backgroundColor: "#eee4d0", symbolColor: "#5f3024" }
+    : { backgroundColor: "#f4eddf", symbolColor: "#3f352b" };
+}
+
+function applyWindowChromeTheme(settings: AppSettings): void {
+  if (!mainWindow) {
+    return;
+  }
+
+  const theme = getWindowChromeTheme(settings.uiTheme);
+  mainWindow.setBackgroundColor(theme.backgroundColor);
+  mainWindow.setTitleBarOverlay({
+    color: "#00000000",
+    symbolColor: theme.symbolColor,
+    height: WINDOW_TITLE_BAR_HEIGHT
+  });
+}
 
 function settingsPath(): string {
   return getSettingsPath(app.getPath("userData"));
@@ -257,6 +278,7 @@ function startAutoUpdatesIfEnabled(settings: AppSettings): void {
 async function createWindow(): Promise<void> {
   const settings = await readSettings(settingsPath());
   const bounds = settings.windowBounds ?? { width: 1040, height: 760 };
+  const windowChromeTheme = getWindowChromeTheme(settings.uiTheme);
   trayBehavior = settings.trayBehavior ?? "exit";
 
   mainWindow = new BrowserWindow({
@@ -265,7 +287,13 @@ async function createWindow(): Promise<void> {
     minHeight: 560,
     title: "Gemini OAuth Switcher",
     icon: getAppIconPath(),
-    backgroundColor: "#f6f4ef",
+    backgroundColor: windowChromeTheme.backgroundColor,
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: "#00000000",
+      symbolColor: windowChromeTheme.symbolColor,
+      height: WINDOW_TITLE_BAR_HEIGHT
+    },
     autoHideMenuBar: true,
     show: false,
     resizable: true,
@@ -318,6 +346,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle("settings:save", async (_event, patch: Partial<AppSettings>) => {
     const nextSettings = await saveSettings(settingsPath(), patch);
     trayBehavior = nextSettings.trayBehavior ?? "exit";
+    applyWindowChromeTheme(nextSettings);
     startAutoUpdatesIfEnabled(nextSettings);
     return nextSettings;
   });
