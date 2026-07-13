@@ -51,15 +51,23 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: node scripts/verify-release-tag.mjs "${{ github.ref_name }}"
 
-      - name: Require Windows signing certificate for releases
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Detect Windows signing configuration
+        id: signing
         shell: pwsh
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:CSC_LINK)) {
-            throw "Missing WINDOWS_CSC_LINK repository secret. Refusing to publish unsigned release binaries."
+          $hasLink = -not [string]::IsNullOrWhiteSpace($env:CSC_LINK)
+          $hasPassword = -not [string]::IsNullOrWhiteSpace($env:CSC_KEY_PASSWORD)
+
+          if ($hasLink -xor $hasPassword) {
+            throw "Configure both WINDOWS_CSC_LINK and WINDOWS_CSC_KEY_PASSWORD, or leave both unset for an unsigned build."
           }
-          if ([string]::IsNullOrWhiteSpace($env:CSC_KEY_PASSWORD)) {
-            throw "Missing WINDOWS_CSC_KEY_PASSWORD repository secret. Refusing to publish unsigned release binaries."
+
+          if ($hasLink) {
+            "enabled=true" >> $env:GITHUB_OUTPUT
+            Write-Host "Windows code signing is enabled."
+          } else {
+            "enabled=false" >> $env:GITHUB_OUTPUT
+            Write-Warning "Windows code signing is not configured. The generated executables will be unsigned."
           }
 
       - name: Verify no OAuth credentials are tracked
@@ -79,7 +87,7 @@ jobs:
           pnpm build
           pnpm exec electron-builder --win --publish never
 
-      - name: Verify release Authenticode signatures
+      - name: Verify release executables
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
@@ -88,14 +96,28 @@ jobs:
             Get-ChildItem -Path release -Filter 'Gemini-OAuth-Switcher-*-portable-x64.exe'
           )
           if ($releaseExecutables.Count -ne 2) {
-            throw "Expected one signed installer and one signed portable executable, found $($releaseExecutables.Count)."
+            throw "Expected one installer and one portable executable, found $($releaseExecutables.Count)."
           }
+
+      - name: Verify release Authenticode signatures
+        if: startsWith(github.ref, 'refs/tags/') && steps.signing.outputs.enabled == 'true'
+        shell: pwsh
+        run: |
+          $releaseExecutables = @(
+            Get-ChildItem -Path release -Filter 'Gemini-OAuth-Switcher-*-setup-x64.exe'
+            Get-ChildItem -Path release -Filter 'Gemini-OAuth-Switcher-*-portable-x64.exe'
+          )
           foreach ($executable in $releaseExecutables) {
             $signature = Get-AuthenticodeSignature -LiteralPath $executable.FullName
             if ($signature.Status -ne 'Valid') {
               throw "Invalid Authenticode signature for $($executable.Name): $($signature.Status)"
             }
           }
+
+      - name: Report unsigned release
+        if: startsWith(github.ref, 'refs/tags/') && steps.signing.outputs.enabled != 'true'
+        shell: pwsh
+        run: Write-Warning "Publishing unsigned Windows executables. Windows SmartScreen may warn users before installation."
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

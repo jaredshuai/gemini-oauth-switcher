@@ -25,11 +25,23 @@ describe("packaged renderer config", () => {
     })).toThrow();
   });
 
-  it("runs release version and Authenticode checks before publishing", () => {
+  it("allows unsigned releases and verifies Authenticode only when signing is configured", () => {
     const workflow = readFileSync(path.join(process.cwd(), ".github", "workflows", "windows-build.yml"), "utf8");
 
     expect(workflow).toContain("node scripts/verify-release-tag.mjs");
     expect(workflow).toContain("WINDOWS_CSC_LINK");
+    expect(workflow).toContain("id: signing");
+    expect(workflow).toContain("$hasLink -xor $hasPassword");
+    expect(workflow).toContain('"enabled=false"');
+    expect(workflow).toContain("steps.signing.outputs.enabled == 'true'");
     expect(workflow).toContain("Get-AuthenticodeSignature");
+    expect(workflow).not.toContain("Refusing to publish unsigned release binaries");
+  });
+
+  it("documents optional signing and the Windows warning shown for unsigned builds", () => {
+    const readme = readFileSync(path.join(process.cwd(), "README.md"), "utf8");
+
+    expect(readme).toContain("代码签名是可选的");
+    expect(readme).toContain("Windows SmartScreen");
   });
 });

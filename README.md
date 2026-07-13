@@ -158,14 +158,20 @@ agy
 
 ## 发布与自动更新
 
-正式版本通过 `vX.Y.Z` tag 触发 GitHub Actions。发布前必须同时满足：
+正式版本通过 `vX.Y.Z` tag 触发 GitHub Actions。发布步骤：
 
 1. 使用 `pnpm version X.Y.Z --no-git-tag-version` 更新 `package.json` 版本并提交。
 2. tag 必须与包版本完全一致，例如包版本 `0.2.0` 只能使用 `v0.2.0`。
-3. GitHub 仓库配置 `WINDOWS_CSC_LINK` 和 `WINDOWS_CSC_KEY_PASSWORD` secrets。前者是 Windows 代码签名 PFX 的 Base64 内容或可访问地址，后者是证书密码。
-4. 推送 `main` 后创建并推送 tag：`git tag vX.Y.Z`、`git push origin vX.Y.Z`。
+3. 推送 `main` 后创建并推送 tag：`git tag vX.Y.Z`、`git push origin vX.Y.Z`。
 
-Release workflow 会校验 tag、构建 NSIS 与 portable、验证两个 exe 的 Authenticode 签名，并上传安装包、portable、blockmap 和 `latest.yml`。缺少签名证书或签名无效时不会创建 GitHub Release。
+代码签名是可选的：
+
+- 未配置签名时，Release workflow 仍会构建并发布 NSIS 安装包、portable、blockmap 和 `latest.yml`。首次安装或更新时，Windows SmartScreen 可能显示“未知发布者”或安全提醒。
+- 需要签名时，在 GitHub 仓库中同时配置 `WINDOWS_CSC_LINK` 和 `WINDOWS_CSC_KEY_PASSWORD` secrets。前者是 Windows 代码签名 PFX 的 Base64 内容或可访问地址，后者是证书密码。
+- 两个签名 secret 必须同时存在或同时留空。只配置其中一个会让构建失败，避免误以为产物已经签名。
+- 配置签名后，workflow 会验证安装包和 portable exe 的 Authenticode 签名；签名无效时不会创建 GitHub Release。
+
+无论是否签名，workflow 都会校验 tag 与包版本、测试代码和发布产物是否完整。
 
 安装版启动后会按设置检查 GitHub Release。下载完成后选择“重启安装”会先退出托盘与窗口生命周期，再启动安装；关闭自动更新会取消尚未执行的检查，并禁止当前会话自动安装。
 
