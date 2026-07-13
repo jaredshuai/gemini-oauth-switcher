@@ -407,61 +407,264 @@ button:focus-visible {
 }
 
 .parchment-dialog {
-  border: 1px solid rgba(91, 60, 29, 0.48);
-  background-color: oklch(94% 0.018 78);
+  border: 1px solid oklch(52% 0.055 55 / 0.72);
+  background-color: oklch(88% 0.048 76);
   background-image:
-    linear-gradient(oklch(99% 0.006 80 / 0.56), oklch(97% 0.01 78 / 0.36)),
+    linear-gradient(90deg, oklch(48% 0.045 52 / 0.08), transparent 7%, transparent 93%, oklch(48% 0.045 52 / 0.08)),
+    linear-gradient(180deg, oklch(98% 0.025 82 / 0.24), transparent 30%, oklch(55% 0.04 56 / 0.06)),
     url("./assets/parchment-texture.png");
-  background-size: 100% 100%, 512px 512px;
-  background-blend-mode: normal, soft-light;
-  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.28), 0 6px 8px rgba(48, 32, 17, 0.22);
+  background-size: 100% 100%, 100% 100%, 512px 512px;
+  background-blend-mode: multiply, normal, soft-light;
+  box-shadow:
+    inset 0 0 0 3px oklch(97% 0.025 82 / 0.3),
+    inset 0 0 26px oklch(42% 0.045 52 / 0.12),
+    0 7px 10px oklch(24% 0.03 48 / 0.26);
+}
+
+[data-theme="rpg-parchment"] .settings-dialog-backdrop {
+  background: oklch(18% 0.025 48 / 0.56);
 }
 
 [data-theme="rpg-parchment"] .parchment-dialog {
-  border-color: oklch(56% 0.04 58 / 0.62);
-  color: oklch(29% 0.032 55);
-  box-shadow: inset 0 0 0 3px oklch(99% 0.006 80 / 0.34), 0 6px 8px oklch(25% 0.03 50 / 0.22);
+  color: oklch(29% 0.045 52);
+}
+
+[data-theme="rpg-parchment"] .settings-dialog-sheet {
+  overflow-x: hidden;
+  border-radius: 0.25rem;
+  padding: 0;
+}
+
+[data-theme="rpg-parchment"] .settings-dialog-header {
+  border-color: oklch(51% 0.05 54 / 0.42);
+  background: oklch(67% 0.06 64 / 0.12);
+  padding: 1rem 1.5rem 0.9rem;
+  box-shadow: inset 0 -2px 0 oklch(97% 0.025 82 / 0.22);
+}
+
+[data-theme="rpg-parchment"] .settings-dialog-title {
+  display: flex;
+  align-items: center;
+  color: oklch(34% 0.07 42);
+  font-family: "Palatino Linotype", Georgia, serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  text-shadow: 0.4px 0 oklch(34% 0.07 42 / 0.26);
+}
+
+[data-theme="rpg-parchment"] .settings-dialog-title::after {
+  width: 2.75rem;
+  height: 1px;
+  margin-left: 0.75rem;
+  background: linear-gradient(90deg, oklch(42% 0.06 48 / 0.65), transparent);
+  content: "";
+}
+
+[data-theme="rpg-parchment"] .settings-dialog-close {
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid oklch(55% 0.05 56 / 0.5);
+  border-radius: 0.25rem;
+  background: oklch(92% 0.035 78 / 0.56);
+  color: oklch(37% 0.055 48);
+  box-shadow: inset 0 0 0 1px oklch(98% 0.02 82 / 0.34);
+}
+
+[data-theme="rpg-parchment"] .settings-dialog-close:not(:disabled):hover {
+  border-color: oklch(43% 0.075 38 / 0.72);
+  background: oklch(82% 0.06 67 / 0.48);
+  color: oklch(31% 0.075 36);
+}
+
+[data-theme="rpg-parchment"] .settings-dialog-content {
+  padding: 0 1.5rem 1.25rem;
+}
+
+[data-theme="rpg-parchment"] .settings-directory-section {
+  border-bottom: 1px solid oklch(52% 0.045 55 / 0.3);
+  padding: 1rem 0;
+}
+
+[data-theme="rpg-parchment"] .settings-ledger {
+  box-shadow: inset 0 -1px 0 oklch(97% 0.02 82 / 0.18);
+}
+
+[data-theme="rpg-parchment"] .settings-row {
+  display: grid;
+  min-height: 4.4rem;
+  grid-template-columns: minmax(12rem, 1fr) auto;
+  align-items: center;
+  gap: 1.5rem;
+  margin-top: 0;
+  border-bottom: 1px solid oklch(52% 0.045 55 / 0.3);
+  padding: 0.85rem 0;
+  box-shadow: inset 0 -1px 0 oklch(97% 0.02 82 / 0.18);
+}
+
+[data-theme="rpg-parchment"] .settings-row-title {
+  color: oklch(32% 0.055 48);
+  font-family: "Palatino Linotype", Georgia, serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+[data-theme="rpg-parchment"] .settings-row-description {
+  max-width: 28rem;
+  color: oklch(45% 0.035 58);
+  line-height: 1.45;
 }
 
 [data-theme="rpg-parchment"] .parchment-dialog .border-neutral-300 {
-  border-color: oklch(68% 0.032 66 / 0.58);
+  border-color: oklch(57% 0.05 58 / 0.52);
 }
 
 [data-theme="rpg-parchment"] .parchment-dialog .text-neutral-950,
 [data-theme="rpg-parchment"] .parchment-dialog .text-neutral-800 {
-  color: oklch(29% 0.032 55);
+  color: oklch(31% 0.05 50);
 }
 
 [data-theme="rpg-parchment"] .parchment-dialog .text-neutral-500,
 [data-theme="rpg-parchment"] .parchment-dialog .text-neutral-400 {
-  color: oklch(47% 0.025 62);
+  color: oklch(45% 0.035 58);
 }
 
 [data-theme="rpg-parchment"] .settings-segment {
-  border-color: oklch(65% 0.038 63 / 0.62);
-  background: oklch(97% 0.012 78 / 0.78);
-  box-shadow: inset 0 0 0 1px oklch(100% 0 0 / 0.5), 0 1px 0 oklch(39% 0.035 55 / 0.08);
+  flex: 0 0 auto;
+  margin-top: 0;
+  border-color: oklch(55% 0.05 56 / 0.56);
+  border-radius: 0.25rem;
+  background: oklch(90% 0.04 76 / 0.5);
+  padding: 0.2rem;
+  box-shadow: inset 0 0 0 1px oklch(97% 0.022 82 / 0.28);
 }
 
 [data-theme="rpg-parchment"] .settings-segment-option {
-  color: oklch(39% 0.035 55);
+  min-height: 2.05rem;
+  border-radius: 0.15rem;
+  color: oklch(35% 0.045 52);
+  padding: 0.4rem 0.75rem;
 }
 
 [data-theme="rpg-parchment"] .settings-segment-option:not(.settings-segment-active):hover {
-  background: oklch(91% 0.022 75);
-  color: oklch(27% 0.035 52);
+  background: oklch(82% 0.055 70 / 0.5);
+  color: oklch(27% 0.055 46);
 }
 
 [data-theme="rpg-parchment"] .settings-segment-option.settings-segment-active {
-  background: oklch(37% 0.045 50);
-  color: oklch(96% 0.012 80);
-  box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.16), inset 0 -2px 0 oklch(19% 0.03 48 / 0.32);
+  background: oklch(42% 0.07 42);
+  color: oklch(94% 0.035 82);
+  text-shadow: 0 1px 0 oklch(22% 0.04 42 / 0.42);
+  box-shadow:
+    inset 0 0 0 1px oklch(24% 0.045 42 / 0.32),
+    inset 0 1px 0 oklch(98% 0.02 82 / 0.14),
+    inset 0 -2px 0 oklch(23% 0.045 42 / 0.34);
 }
 
 [data-theme="rpg-parchment"] .parchment-dialog .tool-button {
-  border-color: oklch(64% 0.038 62 / 0.62);
-  background: oklch(97% 0.012 78 / 0.74);
-  color: oklch(31% 0.032 54);
+  border-color: oklch(55% 0.05 56 / 0.54);
+  border-radius: 0.25rem;
+  background: oklch(91% 0.04 78 / 0.58);
+  color: oklch(31% 0.05 49);
+  box-shadow:
+    inset 0 1px 0 oklch(98% 0.02 82 / 0.42),
+    inset 0 -2px 0 oklch(43% 0.05 52 / 0.08);
+}
+
+[data-theme="rpg-parchment"] .parchment-dialog .tool-button:not(:disabled):hover {
+  border-color: oklch(43% 0.065 48 / 0.72);
+  background: oklch(94% 0.035 80 / 0.74);
+}
+
+[data-theme="rpg-parchment"] .settings-dialog-sheet .primary-button {
+  border-color: oklch(31% 0.065 39);
+  border-radius: 0.25rem;
+  background: oklch(38% 0.075 39);
+  color: oklch(95% 0.03 82);
+}
+
+[data-theme="rpg-parchment"] .settings-dialog-sheet .primary-button:not(:disabled):hover {
+  background: oklch(43% 0.075 40);
+}
+
+[data-theme="rpg-parchment"] .settings-directory-input {
+  border-color: oklch(55% 0.05 56 / 0.55);
+  border-radius: 0.25rem;
+  background: oklch(94% 0.03 80 / 0.66);
+  color: oklch(28% 0.04 48);
+  box-shadow: inset 0 1px 3px oklch(39% 0.04 50 / 0.1);
+}
+
+[data-theme="rpg-parchment"] .settings-directory-input::placeholder {
+  color: oklch(48% 0.03 58);
+}
+
+[data-theme="rpg-parchment"] .settings-directory-input:focus {
+  border-color: oklch(39% 0.07 43);
+  box-shadow: 0 0 0 2px oklch(39% 0.07 43 / 0.16), inset 0 1px 3px oklch(39% 0.04 50 / 0.08);
+}
+
+[data-theme="rpg-parchment"] .settings-dialog-sheet button:focus-visible {
+  outline-color: oklch(36% 0.075 40);
+}
+
+[data-theme="rpg-parchment"] .settings-dialog-footer {
+  padding-top: 0.9rem;
+}
+
+[data-theme="rpg-parchment"] .settings-dialog-actions {
+  margin-top: 0;
+}
+
+[data-theme="rpg-parchment"] .settings-path {
+  margin-top: 0.8rem;
+  border-block: 1px solid oklch(53% 0.045 55 / 0.24);
+  background: oklch(62% 0.05 62 / 0.07);
+  padding: 0.65rem 0.75rem;
+}
+
+[data-theme="rpg-parchment"] .settings-path > div {
+  margin-top: 0;
+  color: oklch(43% 0.035 56);
+}
+
+[data-theme="rpg-parchment"] .settings-path .font-semibold {
+  color: oklch(35% 0.05 49);
+  font-family: "Palatino Linotype", Georgia, serif;
+  text-transform: none;
+}
+
+[data-theme="rpg-parchment"] .settings-path .font-mono {
+  color: oklch(35% 0.035 52);
+}
+
+[data-theme="rpg-parchment"] .settings-dialog-sheet .parchment-status {
+  border-color: oklch(55% 0.05 56 / 0.4);
+  background: oklch(91% 0.04 78 / 0.5);
+  color: oklch(34% 0.045 50);
+}
+
+@media (max-width: 640px) {
+  [data-theme="rpg-parchment"] .settings-dialog-backdrop {
+    padding: 1.25rem 0.75rem;
+  }
+
+  [data-theme="rpg-parchment"] .settings-dialog-header {
+    padding-inline: 1rem;
+  }
+
+  [data-theme="rpg-parchment"] .settings-dialog-content {
+    padding-inline: 1rem;
+  }
+
+  [data-theme="rpg-parchment"] .settings-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.6rem;
+    padding-block: 0.8rem;
+  }
+
+  [data-theme="rpg-parchment"] .settings-segment {
+    justify-self: start;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
