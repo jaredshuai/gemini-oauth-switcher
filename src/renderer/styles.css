@@ -421,6 +421,65 @@ button:focus-visible {
     0 7px 10px oklch(24% 0.03 48 / 0.26);
 }
 
+.settings-dialog-sheet {
+  overflow-x: hidden;
+  border-radius: 0.25rem;
+  padding: 0;
+}
+
+.settings-dialog-header {
+  padding: 1rem 1.5rem 0.9rem;
+}
+
+.settings-dialog-content {
+  padding: 0 1.5rem 1.25rem;
+}
+
+.settings-directory-section {
+  border-bottom: 1px solid rgb(212 212 212);
+  padding: 1rem 0;
+}
+
+.settings-row {
+  display: grid;
+  min-height: 4.4rem;
+  grid-template-columns: minmax(12rem, 1fr) auto;
+  align-items: center;
+  gap: 1.5rem;
+  margin-top: 0;
+  border-bottom: 1px solid rgb(212 212 212);
+  padding: 0.85rem 0;
+}
+
+.settings-row-description {
+  max-width: 28rem;
+  line-height: 1.45;
+}
+
+.settings-segment {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
+
+.settings-dialog-footer {
+  padding-top: 0.9rem;
+}
+
+.settings-dialog-actions {
+  margin-top: 0;
+}
+
+.settings-path {
+  margin-top: 0.8rem;
+  border-block: 1px solid rgb(229 229 229);
+  background: rgb(250 250 250 / 0.58);
+  padding: 0.65rem 0.75rem;
+}
+
+.settings-path > div {
+  margin-top: 0;
+}
+
 [data-theme="rpg-parchment"] .settings-dialog-backdrop {
   background: oklch(18% 0.025 48 / 0.56);
 }
@@ -430,15 +489,12 @@ button:focus-visible {
 }
 
 [data-theme="rpg-parchment"] .settings-dialog-sheet {
-  overflow-x: hidden;
   border-radius: 0.25rem;
-  padding: 0;
 }
 
 [data-theme="rpg-parchment"] .settings-dialog-header {
   border-color: oklch(51% 0.05 54 / 0.42);
   background: oklch(67% 0.06 64 / 0.12);
-  padding: 1rem 1.5rem 0.9rem;
   box-shadow: inset 0 -2px 0 oklch(97% 0.025 82 / 0.22);
 }
 
@@ -476,13 +532,8 @@ button:focus-visible {
   color: oklch(31% 0.075 36);
 }
 
-[data-theme="rpg-parchment"] .settings-dialog-content {
-  padding: 0 1.5rem 1.25rem;
-}
-
 [data-theme="rpg-parchment"] .settings-directory-section {
   border-bottom: 1px solid oklch(52% 0.045 55 / 0.3);
-  padding: 1rem 0;
 }
 
 [data-theme="rpg-parchment"] .settings-ledger {
@@ -490,14 +541,7 @@ button:focus-visible {
 }
 
 [data-theme="rpg-parchment"] .settings-row {
-  display: grid;
-  min-height: 4.4rem;
-  grid-template-columns: minmax(12rem, 1fr) auto;
-  align-items: center;
-  gap: 1.5rem;
-  margin-top: 0;
   border-bottom: 1px solid oklch(52% 0.045 55 / 0.3);
-  padding: 0.85rem 0;
   box-shadow: inset 0 -1px 0 oklch(97% 0.02 82 / 0.18);
 }
 
@@ -509,9 +553,7 @@ button:focus-visible {
 }
 
 [data-theme="rpg-parchment"] .settings-row-description {
-  max-width: 28rem;
   color: oklch(45% 0.035 58);
-  line-height: 1.45;
 }
 
 [data-theme="rpg-parchment"] .parchment-dialog .border-neutral-300 {
@@ -529,8 +571,6 @@ button:focus-visible {
 }
 
 [data-theme="rpg-parchment"] .settings-segment {
-  flex: 0 0 auto;
-  margin-top: 0;
   border-color: oklch(55% 0.05 56 / 0.56);
   border-radius: 0.25rem;
   background: oklch(90% 0.04 76 / 0.5);
@@ -607,23 +647,12 @@ button:focus-visible {
   outline-color: oklch(36% 0.075 40);
 }
 
-[data-theme="rpg-parchment"] .settings-dialog-footer {
-  padding-top: 0.9rem;
-}
-
-[data-theme="rpg-parchment"] .settings-dialog-actions {
-  margin-top: 0;
-}
-
 [data-theme="rpg-parchment"] .settings-path {
-  margin-top: 0.8rem;
   border-block: 1px solid oklch(53% 0.045 55 / 0.24);
   background: oklch(62% 0.05 62 / 0.07);
-  padding: 0.65rem 0.75rem;
 }
 
 [data-theme="rpg-parchment"] .settings-path > div {
-  margin-top: 0;
   color: oklch(43% 0.035 56);
 }
 
@@ -644,25 +673,25 @@ button:focus-visible {
 }
 
 @media (max-width: 640px) {
-  [data-theme="rpg-parchment"] .settings-dialog-backdrop {
+  .settings-dialog-backdrop {
     padding: 1.25rem 0.75rem;
   }
 
-  [data-theme="rpg-parchment"] .settings-dialog-header {
+  .settings-dialog-header {
     padding-inline: 1rem;
   }
 
-  [data-theme="rpg-parchment"] .settings-dialog-content {
+  .settings-dialog-content {
     padding-inline: 1rem;
   }
 
-  [data-theme="rpg-parchment"] .settings-row {
+  .settings-row {
     grid-template-columns: minmax(0, 1fr);
     gap: 0.6rem;
     padding-block: 0.8rem;
   }
 
-  [data-theme="rpg-parchment"] .settings-segment {
+  .settings-segment {
     justify-self: start;
   }
 }
