@@ -13,7 +13,7 @@
 body {
   margin: 0;
   min-width: 0;
-  background: #f4eddf;
+  background: #e9deca;
   font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
 }
 
@@ -32,18 +32,19 @@ button:focus-visible {
 }
 
 .app-parchment {
-  background-color: #f4eddf;
+  background-color: #eee4d0;
   background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cfilter id='paper'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.72' numOctaves='3' seed='17' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='table' tableValues='0 .12'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23paper)' opacity='.18'/%3E%3C/svg%3E"),
-    linear-gradient(90deg, rgba(91, 62, 29, 0.035), transparent 13%, transparent 87%, rgba(91, 62, 29, 0.035)),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.2), transparent 34%, rgba(120, 83, 38, 0.025));
-  background-size: 180px 180px, 100% 100%, 100% 100%;
+    linear-gradient(90deg, rgba(75, 47, 19, 0.06), transparent 11%, transparent 89%, rgba(75, 47, 19, 0.06)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 30%, rgba(102, 66, 27, 0.04)),
+    url("./assets/parchment-texture.png");
+  background-size: 100% 100%, 100% 100%, 512px 512px;
   background-blend-mode: multiply, normal, normal;
+  box-shadow: inset 0 0 0 1px rgba(88, 57, 25, 0.2), inset 0 0 42px rgba(88, 57, 25, 0.08);
 }
 
 .app-header {
-  border-color: rgba(111, 82, 46, 0.28);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+  border-color: rgba(91, 60, 29, 0.42);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5), 0 3px 0 -2px rgba(91, 60, 29, 0.18);
 }
 
 .mode-loadout {
@@ -51,7 +52,7 @@ button:focus-visible {
   border: 0;
   border-radius: 0.25rem;
   background: transparent;
-  padding: 0.2rem 0.35rem;
+  padding: 0.15rem 0.2rem;
   color: #4b3421;
 }
 
@@ -62,7 +63,7 @@ button:focus-visible {
 .mode-loadout-track {
   display: grid;
   width: max-content;
-  grid-template-columns: max-content 2rem max-content;
+  grid-template-columns: max-content 1.8rem max-content;
   align-items: center;
   gap: 0.45rem;
 }
@@ -73,6 +74,10 @@ button:focus-visible {
   min-width: 0;
   align-items: center;
   gap: 0.45rem;
+  min-height: 2.2rem;
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  padding: 0.2rem 0.45rem;
 }
 
 .mode-loadout-sigil {
@@ -99,22 +104,23 @@ button:focus-visible {
 }
 
 .mode-loadout-active {
+  border-color: rgba(95, 48, 36, 0.42);
+  background: rgba(255, 249, 235, 0.54);
   color: #5f3024;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45), inset 0 -2px 0 rgba(95, 48, 36, 0.08);
 }
 
 .mode-loadout-active .mode-loadout-sigil {
-  border: 2px double rgba(95, 48, 36, 0.86);
-  box-shadow: 0 0 0 1px rgba(95, 48, 36, 0.12);
+  border: 2px double rgba(95, 48, 36, 0.9);
+  background: rgba(95, 48, 36, 0.06);
+  box-shadow: 0 0 0 1px rgba(95, 48, 36, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.35);
   transform: rotate(-5deg);
   animation: loadout-stamp-in 420ms cubic-bezier(0.2, 0.72, 0.22, 1);
 }
 
 .mode-loadout-active .mode-loadout-name {
-  padding: 0.05rem 0.18rem 0.38rem;
-  background-image: linear-gradient(90deg, transparent, rgba(95, 48, 36, 0.7) 13%, rgba(95, 48, 36, 0.42) 87%, transparent);
-  background-position: center bottom;
-  background-repeat: no-repeat;
-  background-size: 100% 2px;
+  border-bottom: 1px solid rgba(95, 48, 36, 0.58);
+  padding: 0.05rem 0.1rem 0.2rem;
   font-size: 1.13rem;
   font-weight: 700;
   text-shadow: 0.4px 0 rgba(95, 48, 36, 0.24);
@@ -124,6 +130,11 @@ button:focus-visible {
 .mode-loadout-secondary {
   color: rgba(90, 69, 45, 0.55);
   transition: color 160ms ease;
+}
+
+.mode-loadout-secondary:hover {
+  border-color: rgba(90, 69, 45, 0.24);
+  background: rgba(255, 250, 239, 0.28);
 }
 
 .mode-loadout-secondary .mode-loadout-sigil {
@@ -144,6 +155,12 @@ button:focus-visible {
   align-items: center;
   justify-content: center;
   color: rgba(85, 59, 31, 0.52);
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid rgba(91, 60, 29, 0.28);
+  border-radius: 0.2rem;
+  background: rgba(255, 249, 235, 0.35);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
   animation: loadout-swap 440ms cubic-bezier(0.2, 0.75, 0.2, 1);
   transition: color 160ms ease, transform 160ms ease;
 }
@@ -223,6 +240,7 @@ button:focus-visible {
   font-size: 0.875rem;
   font-weight: 600;
   color: rgb(38 38 38);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), inset 0 -2px 0 rgba(105, 73, 36, 0.06), 0 1px 0 rgba(86, 56, 27, 0.08);
   transition:
     background 140ms ease,
     border-color 140ms ease,
@@ -261,9 +279,11 @@ button:focus-visible {
 }
 
 .primary-button {
-  background: rgb(23 23 23);
+  border: 1px solid rgb(23 23 23);
+  background: #231d17;
   color: white;
   padding: 0.5rem 0.9rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), inset 0 -2px 0 rgba(0, 0, 0, 0.34);
 }
 
 .primary-button:not(:disabled):hover {
@@ -275,6 +295,7 @@ button:focus-visible {
   border: 1px solid rgba(137, 109, 74, 0.34);
   background: rgba(255, 252, 244, 0.78);
   color: rgb(23 23 23);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -2px 0 rgba(105, 73, 36, 0.07);
 }
 
 .switch-button:not(:disabled):hover {
@@ -315,6 +336,7 @@ button:focus-visible {
   border: 1px solid rgb(254 202 202);
   background: rgb(254 242 242);
   color: rgb(185 28 28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), inset 0 -2px 0 rgba(153, 27, 27, 0.06);
 }
 
 .danger-icon-button:not(:disabled):hover {
@@ -336,37 +358,61 @@ button:focus-visible {
 
 .credential-console {
   background-color: #0e0c09;
+  border: 1px solid rgba(83, 57, 29, 0.92);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.06) inset,
-    0 0 0 1px rgba(64, 43, 22, 0.78),
-    0 12px 28px rgba(63, 43, 23, 0.14);
+    inset 0 0 0 3px rgba(157, 113, 58, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 5px 8px rgba(63, 43, 23, 0.14);
 }
 
 .account-vault {
+  border: 1px solid rgba(111, 82, 46, 0.38);
   background: rgba(255, 252, 244, 0.76);
   box-shadow:
-    0 0 0 1px rgba(111, 82, 46, 0.22),
-    0 8px 24px rgba(72, 49, 24, 0.07);
+    inset 0 0 0 2px rgba(255, 255, 255, 0.38),
+    0 4px 8px rgba(72, 49, 24, 0.08);
 }
 
 .parchment-section-header {
-  border-color: rgba(111, 82, 46, 0.18);
-  background: rgba(255, 248, 232, 0.42);
+  border-color: rgba(111, 82, 46, 0.3);
+  background-color: rgba(244, 232, 205, 0.58);
+  background-image: url("./assets/parchment-texture.png");
+  background-size: 512px 512px;
+  background-blend-mode: multiply;
+  box-shadow: inset 0 -2px 0 rgba(111, 82, 46, 0.06);
+}
+
+.parchment-section-header h2 {
+  font-family: "Palatino Linotype", Georgia, serif;
+  font-size: 1rem;
+  letter-spacing: 0;
+  color: #402a18;
 }
 
 .parchment-column-header {
-  border-color: rgba(111, 82, 46, 0.16);
-  background: rgba(101, 72, 36, 0.045);
+  border-color: rgba(111, 82, 46, 0.24);
+  background: rgba(101, 72, 36, 0.075);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34);
 }
 
 .parchment-count {
   border-color: rgba(137, 109, 74, 0.3);
   background: rgba(255, 250, 239, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.42), 0 1px 0 rgba(91, 60, 29, 0.08);
 }
 
 .parchment-status {
   border-color: rgba(137, 109, 74, 0.3);
   background: rgba(255, 251, 241, 0.66);
+}
+
+.parchment-dialog {
+  border: 1px solid rgba(91, 60, 29, 0.48);
+  background-color: #f1e7d4;
+  background-image: url("./assets/parchment-texture.png");
+  background-size: 512px 512px;
+  background-blend-mode: multiply;
+  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.28), 0 6px 8px rgba(48, 32, 17, 0.22);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -390,7 +436,56 @@ button:focus-visible {
 }
 
 .profile-row-current:hover {
-  background-color: rgba(236, 253, 245, 0.58);
+  background-color: rgba(227, 246, 232, 0.66);
+}
+
+.profile-row-current {
+  background-color: rgba(229, 245, 233, 0.52);
+  box-shadow: inset 0 0 0 1px rgba(5, 150, 105, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.34);
+}
+
+.account-slot {
+  border: 1px solid rgba(120, 87, 48, 0.42);
+  border-radius: 0.25rem;
+  background: rgba(251, 246, 233, 0.82);
+  box-shadow: inset 0 0 0 2px rgba(118, 83, 42, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 1px 0 rgba(91, 60, 29, 0.08);
+}
+
+.account-slot-current {
+  border-color: rgba(5, 150, 105, 0.45);
+  background: rgba(209, 250, 229, 0.68);
+  box-shadow: inset 0 0 0 2px rgba(5, 150, 105, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.64);
+}
+
+.current-seal {
+  display: inline-flex;
+  min-height: 1.35rem;
+  align-items: center;
+  border: 2px double rgba(4, 120, 87, 0.7);
+  border-radius: 999px;
+  background: rgba(209, 250, 229, 0.72);
+  padding: 0.08rem 0.48rem;
+  color: rgb(6 95 70);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  transform: rotate(-2deg);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.36) inset;
+}
+
+.quota-track {
+  height: 0.48rem;
+  overflow: hidden;
+  border: 1px solid rgba(91, 60, 29, 0.22);
+  border-radius: 0.15rem;
+  background: rgba(91, 60, 29, 0.13);
+  box-shadow: inset 0 1px 2px rgba(72, 49, 24, 0.16), 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
+.quota-fill {
+  height: 100%;
+  border-radius: 0.08rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34), inset 0 -1px 0 rgba(0, 0, 0, 0.12);
 }
 
 .console-action-button {

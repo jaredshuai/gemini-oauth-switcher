@@ -65,7 +65,7 @@ export function OAuthLoginDialog({
       aria-labelledby="oauth-login-dialog-title"
       onMouseDown={onBackdropClick}
     >
-      <section className="flex max-h-[calc(100vh-2.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-md border border-neutral-300 bg-[#f7f3ea] shadow-xl">
+      <section className="parchment-dialog flex max-h-[calc(100vh-2.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-md">
         <div className="flex items-center justify-between gap-3 border-b border-neutral-300 px-5 py-4">
           <div>
             <h2 id="oauth-login-dialog-title" className="text-lg font-semibold text-neutral-950">新增 {toolLabels.shortName} 登录</h2>

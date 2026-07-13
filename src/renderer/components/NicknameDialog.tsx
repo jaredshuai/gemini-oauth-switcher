@@ -18,7 +18,7 @@ export function NicknameDialog({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-neutral-950/35 px-4 py-10" role="dialog" aria-modal="true" aria-labelledby="nickname-dialog-title">
-      <section className="w-full max-w-lg rounded-md border border-neutral-300 bg-[#f7f3ea] p-5 shadow-xl">
+      <section className="parchment-dialog w-full max-w-lg rounded-md p-5">
         <div className="flex items-center justify-between gap-3 border-b border-neutral-300 pb-4">
           <h2 id="nickname-dialog-title" className="text-lg font-semibold text-neutral-950">设置昵称</h2>
           <button className="copy-icon-button" onClick={onClose} disabled={isSaving} aria-label="关闭昵称设置" title="关闭">

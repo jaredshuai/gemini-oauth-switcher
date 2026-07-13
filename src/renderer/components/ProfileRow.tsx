@@ -53,10 +53,10 @@ export function ProfileRow({
   const AccountIcon = isGeminiTool ? FolderKey : KeyRound;
 
   return (
-    <div className={`profile-row relative grid grid-cols-[minmax(260px,1fr)_320px_152px] items-center gap-3 px-5 py-4 text-sm ${profile.isCurrent ? "profile-row-current bg-emerald-50/35 before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-emerald-500" : "bg-transparent"}`}>
+    <div className={`profile-row relative grid grid-cols-[minmax(260px,1fr)_320px_152px] items-center gap-3 px-5 py-4 text-sm ${profile.isCurrent ? "profile-row-current" : "bg-transparent"}`}>
       <div className="flex min-w-0 items-start gap-3.5">
         <div
-          className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${profile.isCurrent ? "border-emerald-300 bg-emerald-100/70 text-emerald-700" : "border-[#d8cbb4] bg-[#fbf6e9] text-neutral-400"}`}
+          className={`account-slot mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center ${profile.isCurrent ? "account-slot-current text-emerald-700" : "text-neutral-500"}`}
           title={profile.isCurrent ? "当前账号" : "可切换账号"}
         >
           <AccountIcon className="h-4 w-4" />
@@ -72,7 +72,7 @@ export function ProfileRow({
             <button className="copy-icon-button" onClick={onSetNickname} aria-label={`设置 ${profile.name} 的昵称`} title="设置昵称">
               <Pencil className="h-3.5 w-3.5" />
             </button>
-            {profile.isCurrent ? <span className="status-pill ml-1 bg-emerald-100 text-emerald-800">当前</span> : null}
+            {profile.isCurrent ? <span className="current-seal ml-1">当前</span> : null}
             {!profile.exists ? <span className="status-pill bg-amber-100 text-amber-800">{toolLabels.missingLabel}</span> : null}
           </div>
           {hasAlternateDisplayName ? (
@@ -82,7 +82,7 @@ export function ProfileRow({
           ) : null}
           {isGeminiTool && profile.oauthPath ? (
             <div className="mt-1 flex min-w-0 items-center gap-1">
-              <span className="truncate font-mono text-[10px] text-neutral-400" title={profile.oauthPath}>
+              <span className="truncate font-mono text-[10px] text-neutral-500" title={profile.oauthPath}>
                 {profile.oauthPath}
               </span>
               <button
@@ -266,9 +266,9 @@ function CompactUsageTierBar({
     <div className="grid min-w-0 grid-cols-[20px_minmax(44px,1fr)_32px] items-center gap-1.5 font-mono text-[10px] leading-none text-neutral-700" title={title}>
       {/* Narrow column keeps short bucket keys; full mode wording lives in title/aria. */}
       <span title={displayLabel}>{tier.label}</span>
-      <div className="h-1.5 overflow-hidden rounded-full bg-neutral-200">
+      <div className="quota-track">
         <div
-          className={`h-full rounded-full ${usageBarClass(tier.utilization)}`}
+          className={`quota-fill ${usageBarClass(tier.utilization)}`}
           style={{ width: `${percentage}%` }}
           role="progressbar"
           aria-label={ariaLabel}
@@ -303,9 +303,9 @@ function UsageTierBar({ tier, usageDisplayMode }: { tier: UsageTier; usageDispla
         <span className="whitespace-nowrap" title={displayLabel}>
           {displayLabel}
         </span>
-        <div className="h-1.5 overflow-hidden rounded-full bg-neutral-200">
+        <div className="quota-track">
           <div
-            className={`h-full rounded-full ${usageBarClass(tier.utilization)}`}
+            className={`quota-fill ${usageBarClass(tier.utilization)}`}
             style={{ width: `${percentage}%` }}
             role="progressbar"
             aria-label={ariaLabel}

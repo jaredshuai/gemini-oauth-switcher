@@ -53,7 +53,7 @@ export function SettingsDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-neutral-950/35 px-4 py-10" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
-      <section className="w-full max-w-2xl rounded-md border border-neutral-300 bg-[#f7f3ea] p-5 shadow-xl">
+      <section className="parchment-dialog max-h-[calc(100vh-2.5rem)] w-full max-w-2xl overflow-y-auto overscroll-contain rounded-md p-5">
         <div className="flex items-center justify-between gap-3 border-b border-neutral-300 pb-4">
           <h2 id="settings-dialog-title" className="text-lg font-semibold text-neutral-950">设置</h2>
           <button className="copy-icon-button" onClick={onClose} aria-label="关闭设置" title="关闭">
