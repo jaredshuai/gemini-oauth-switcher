@@ -1,6 +1,6 @@
 {
   "name": "gemini-oauth-switcher",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Lightweight Windows GUI for switching Gemini CLI OAuth profiles.",
   "main": "dist-electron/main/main.js",
   "private": true,
