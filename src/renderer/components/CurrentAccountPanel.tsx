@@ -1,4 +1,4 @@
-import { ArrowRight, CircleAlert, KeyRound, ShieldCheck, Shuffle, SquareTerminal, TriangleAlert, UserPlus } from "lucide-react";
+import { CircleAlert, KeyRound, ListChecks, ShieldCheck, SquareTerminal, TriangleAlert, UserPlus } from "lucide-react";
 import type { LastSwitchResult, LocalDiagnosticsResult, ProfileInfo, TargetTool } from "../../shared/types";
 import { TOOL_LABELS } from "../constants";
 import { formatSwitchRelativeTime } from "../utils";
@@ -8,7 +8,6 @@ export function CurrentAccountPanel({
   currentProfile,
   displayName,
   hasUnmatchedTarget,
-  hasTargetOAuth,
   lastSwitch,
   localDiagnostics,
   isRegisteringCurrent,
@@ -18,7 +17,6 @@ export function CurrentAccountPanel({
   currentProfile?: ProfileInfo;
   displayName?: string;
   hasUnmatchedTarget: boolean;
-  hasTargetOAuth: boolean;
   lastSwitch?: LastSwitchResult;
   localDiagnostics?: LocalDiagnosticsResult;
   isRegisteringCurrent: boolean;
@@ -40,8 +38,8 @@ export function CurrentAccountPanel({
   return (
     <section className="py-3.5">
       <aside className="credential-console overflow-hidden rounded-md bg-neutral-950 text-sm text-neutral-100">
-        <div className="grid min-h-[248px] lg:grid-cols-[minmax(340px,0.82fr)_minmax(520px,1.18fr)]">
-          <div className="relative flex min-w-0 flex-col justify-between px-7 py-6 lg:border-r lg:border-neutral-800/80">
+        <div className="grid min-h-[212px] lg:grid-cols-[minmax(340px,0.82fr)_minmax(520px,1.18fr)]">
+          <div className="relative flex min-w-0 flex-col justify-between px-7 py-5 lg:border-r lg:border-neutral-800/80">
             <div>
               <div className={`flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-[0.18em] ${currentProfile ? "text-emerald-400" : "text-amber-300"}`}>
                 {currentProfile ? <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_0_4px_rgba(52,211,153,0.10)]" /> : <TriangleAlert className="h-4 w-4" />}
@@ -90,11 +88,10 @@ export function CurrentAccountPanel({
             </div>
           </div>
 
-          <SwitchRoutePanel
+          <AccountStatusPanel
             selectedTool={selectedTool}
             currentProfile={currentProfile}
             displayName={displayName}
-            hasTargetOAuth={hasTargetOAuth}
             lastSwitch={lastSwitch}
             localDiagnostics={localDiagnostics}
           />
@@ -104,23 +101,19 @@ export function CurrentAccountPanel({
   );
 }
 
-function SwitchRoutePanel({
+function AccountStatusPanel({
   selectedTool,
   currentProfile,
   displayName,
-  hasTargetOAuth,
   lastSwitch,
   localDiagnostics
 }: {
   selectedTool: TargetTool;
   currentProfile?: ProfileInfo;
   displayName?: string;
-  hasTargetOAuth: boolean;
   lastSwitch?: LastSwitchResult;
   localDiagnostics?: LocalDiagnosticsResult;
 }) {
-  const toolLabels = TOOL_LABELS[selectedTool];
-  const active = Boolean(currentProfile);
   const lastSwitchName = lastSwitch
     ? lastSwitch.profileName === currentProfile?.name
       ? displayName ?? currentProfile.name
@@ -129,83 +122,40 @@ function SwitchRoutePanel({
   const envRisks = localDiagnostics?.envRisks ?? [];
 
   return (
-    <div className="flex min-w-0 flex-col justify-between px-7 py-6">
-      <div>
-        <div className="flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-400">
-          <Shuffle className="h-3.5 w-3.5" />
-          凭据路由
-        </div>
-
-        <div className="mt-5 grid grid-cols-[minmax(0,1fr)_28px_minmax(0,1fr)_28px_minmax(0,0.72fr)] items-center gap-2">
-          <RouteNode label="账号凭据" value={displayName ?? currentProfile?.name ?? "等待选择"} tone={active ? "active" : "idle"} />
-          <RouteArrow active={active} />
-          <RouteNode label="官方目标" value={selectedTool === "gemini" ? "oauth_creds.json" : "gemini:antigravity"} tone={hasTargetOAuth ? "active" : "warning"} />
-          <RouteArrow active={active} />
-          <RouteNode label="命令" value={toolLabels.command} tone={active ? "active" : "idle"} terminal />
-        </div>
+    <div className="flex min-w-0 flex-col px-7 py-5">
+      <div className="flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-400">
+        <ListChecks className="h-3.5 w-3.5" />
+        状态检查
       </div>
 
-      <div className="mt-6 grid gap-x-6 gap-y-3 border-t border-neutral-800/80 pt-4 sm:grid-cols-2">
+      <div className="mt-4 grid gap-x-6 gap-y-4 border-y border-neutral-800/80 py-4 sm:grid-cols-2">
         <InfoBlock
           label="最近切换"
           value={lastSwitch && lastSwitchName ? `${formatSwitchRelativeTime(lastSwitch.switchedAt)} / ${lastSwitchName}` : "暂无记录"}
           tone={lastSwitch ? "normal" : "muted"}
         />
         <InfoBlock
-          label="完整性校验"
-          value={lastSwitch?.verified ? "源与目标 hash 一致" : "等待首次切换"}
+          label="切换结果"
+          value={lastSwitch?.verified ? "切换校验通过" : currentProfile ? "当前账号已匹配" : "尚未完成切换"}
           tone={lastSwitch?.verified ? "success" : "muted"}
         />
-        <div className="sm:col-span-2">
-          <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">本机状态</div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {localDiagnostics ? (
-              <>
-                {envRisks.length > 0 ? envRisks.map((risk) => <RiskChip key={risk} tone="warning" label={risk} />) : <RiskChip tone="success" label="无环境变量风险" />}
-                {selectedTool === "gemini" ? (
-                  <RiskChip tone={localDiagnostics.geminiCommand.available ? "success" : "warning"} label={localDiagnostics.geminiCommand.available ? "gemini 可用" : "gemini 不可用"} />
-                ) : null}
-              </>
-            ) : (
-              <RiskChip tone="muted" label="检查中" />
-            )}
-          </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">本机环境</div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {localDiagnostics ? (
+            <>
+              {envRisks.length > 0 ? envRisks.map((risk) => <RiskChip key={risk} tone="warning" label={risk} />) : <RiskChip tone="success" label="无环境变量风险" />}
+              {selectedTool === "gemini" ? (
+                <RiskChip tone={localDiagnostics.geminiCommand.available ? "success" : "warning"} label={localDiagnostics.geminiCommand.available ? "Gemini CLI 可用" : "Gemini CLI 不可用"} />
+              ) : null}
+            </>
+          ) : (
+            <RiskChip tone="muted" label="检查中" />
+          )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function RouteNode({
-  label,
-  value,
-  tone,
-  terminal = false
-}: {
-  label: string;
-  value: string;
-  tone: "active" | "warning" | "idle";
-  terminal?: boolean;
-}) {
-  const toneClass = tone === "active" ? "text-emerald-300" : tone === "warning" ? "text-amber-200" : "text-neutral-500";
-  return (
-    <div className="min-w-0">
-      <div className="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-neutral-500">
-        {terminal ? <SquareTerminal className="h-3 w-3" /> : <KeyRound className="h-3 w-3" />}
-        {label}
-      </div>
-      <div className={`mt-2 truncate font-mono text-[13px] font-semibold ${toneClass}`} title={value}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function RouteArrow({ active }: { active: boolean }) {
-  return (
-    <div className="relative flex items-center justify-center" aria-hidden="true">
-      <span className={`absolute h-px w-full ${active ? "bg-emerald-400/35" : "bg-neutral-800"}`} />
-      <ArrowRight className={`relative h-3.5 w-3.5 bg-[#0e0c09] ${active ? "text-emerald-400" : "text-neutral-700"}`} />
     </div>
   );
 }

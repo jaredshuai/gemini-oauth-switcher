@@ -802,7 +802,6 @@ export function App() {
           currentProfile={currentProfile}
           displayName={currentProfileDisplayName}
           hasUnmatchedTarget={Boolean(result.targetHash && !currentProfile)}
-          hasTargetOAuth={Boolean(result.targetHash)}
           lastSwitch={visibleLastSwitch}
           localDiagnostics={localDiagnostics}
           isRegisteringCurrent={isRegisteringCurrentAntigravity}
