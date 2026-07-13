@@ -241,6 +241,11 @@ function mapQuotaGroups(value: unknown): UsageGroup[] {
     const description = typeof raw.description === "string" && raw.description.trim()
       ? raw.description.trim()
       : undefined;
+    const compactModelGroups = mapAllModelsQuotaGroups(displayName, raw.buckets);
+    if (compactModelGroups) {
+      return compactModelGroups;
+    }
+
     const tiers = mapQuotaBuckets(raw.buckets);
     if (tiers.length === 0) {
       return [];
@@ -253,6 +258,74 @@ function mapQuotaGroups(value: unknown): UsageGroup[] {
       tiers
     }];
   });
+}
+
+function mapAllModelsQuotaGroups(displayName: string, value: unknown): UsageGroup[] | undefined {
+  if (normalizeName(displayName) !== "all_models" || !Array.isArray(value)) {
+    return undefined;
+  }
+
+  const families = {
+    gemini: [] as Array<{ displayName: string; utilization: number }>,
+    thirdParty: [] as Array<{ displayName: string; utilization: number }>
+  };
+
+  for (const bucket of value) {
+    if (!bucket || typeof bucket !== "object") {
+      continue;
+    }
+
+    const raw = bucket as { bucketId?: unknown; displayName?: unknown; remainingFraction?: unknown };
+    if (typeof raw.bucketId !== "string" || !raw.bucketId.trim()) {
+      continue;
+    }
+
+    const modelDisplayName = typeof raw.displayName === "string" && raw.displayName.trim()
+      ? raw.displayName.trim()
+      : raw.bucketId.trim();
+    const identity = `${raw.bucketId} ${modelDisplayName}`.toLowerCase();
+    const family = identity.includes("gemini")
+      ? families.gemini
+      : identity.includes("claude") || identity.includes("gpt")
+        ? families.thirdParty
+        : undefined;
+    if (!family) {
+      continue;
+    }
+
+    const remaining = clamp01(typeof raw.remainingFraction === "number" ? raw.remainingFraction : 1);
+    family.push({
+      displayName: modelDisplayName,
+      utilization: roundPercent((1 - remaining) * 100)
+    });
+  }
+
+  const groups: UsageGroup[] = [];
+  if (families.gemini.length > 0) {
+    groups.push(makeModelQuotaGroup("gemini_models", "Gemini", families.gemini));
+  }
+  if (families.thirdParty.length > 0) {
+    groups.push(makeModelQuotaGroup("claude_and_gpt_models", "Claude / GPT", families.thirdParty));
+  }
+
+  return groups.length > 0 ? groups : undefined;
+}
+
+function makeModelQuotaGroup(
+  name: string,
+  label: string,
+  models: Array<{ displayName: string; utilization: number }>
+): UsageGroup {
+  return {
+    name,
+    label,
+    description: `按组内最紧张的模型额度汇总：${models.map((model) => model.displayName).join("、")}`,
+    tiers: [{
+      name: "model-quota",
+      label: "模型",
+      utilization: Math.max(...models.map((model) => model.utilization))
+    }]
+  };
 }
 
 function mapQuotaBuckets(value: unknown): UsageTier[] {

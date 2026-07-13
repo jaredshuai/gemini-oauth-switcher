@@ -143,6 +143,71 @@ describe("antigravityUsageService", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("collapses model-level All Models quota into compact product groups", async () => {
+    const usage = await queryAntigravityUsage({
+      profileName: "new-login",
+      credentialTarget: "profile-target",
+      credentialStore: createMemoryCredentialStore(JSON.stringify({
+        token: {
+          access_token: "fresh-access-token",
+          refresh_token: "refresh-token",
+          expiry: "2026-07-12T11:00:00.000Z"
+        }
+      })),
+      fetchImpl: vi.fn(async () => response(200, {
+        groups: [{
+          displayName: "All Models",
+          buckets: [
+            {
+              bucketId: "gemini-3-5-flash-medium",
+              displayName: "Gemini 3.5 Flash (Medium)",
+              remainingFraction: 1
+            },
+            {
+              bucketId: "gemini-3-1-pro-high",
+              displayName: "Gemini 3.1 Pro (High)",
+              remainingFraction: 0.75
+            },
+            {
+              bucketId: "claude-sonnet-4-6-thinking",
+              displayName: "Claude Sonnet 4.6 (Thinking)",
+              remainingFraction: 0.8
+            },
+            {
+              bucketId: "gpt-oss-120b-medium",
+              displayName: "GPT-OSS 120B (Medium)",
+              remainingFraction: 0.6
+            }
+          ]
+        }]
+      })),
+      nowMs: () => new Date("2026-07-12T10:00:00.000Z").getTime()
+    });
+
+    expect(usage.groups).toEqual([
+      {
+        name: "gemini_models",
+        label: "Gemini",
+        description: expect.stringContaining("Gemini 3.1 Pro (High)"),
+        tiers: [{
+          name: "model-quota",
+          label: "模型",
+          utilization: 25
+        }]
+      },
+      {
+        name: "claude_and_gpt_models",
+        label: "Claude / GPT",
+        description: expect.stringContaining("GPT-OSS 120B (Medium)"),
+        tiers: [{
+          name: "model-quota",
+          label: "模型",
+          utilization: 40
+        }]
+      }
+    ]);
+  });
+
   it("refreshes an expired Antigravity access token before querying quota", async () => {
     const oauthClient = {
       clientId: "test-client-id",
