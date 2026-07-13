@@ -104,10 +104,10 @@ export function SettingsDialog({
           <div className="mt-5">
             <div className="text-sm font-semibold text-neutral-800">界面皮肤</div>
             <p className="mt-1 text-xs text-neutral-500">只改变外观，不影响账号、凭据和用量数据。</p>
-            <div className="mt-2 inline-flex overflow-hidden rounded-md border border-neutral-300 bg-white/70 p-1">
+            <div className="settings-segment mt-2 inline-flex overflow-hidden rounded-md border border-neutral-300 bg-white/70 p-1">
               <button
-                className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
-                  uiTheme === "classic" ? "bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
+                className={`settings-segment-option rounded px-3 py-1.5 text-sm font-semibold transition ${
+                  uiTheme === "classic" ? "settings-segment-active bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
                 }`}
                 onClick={() => void onUiThemeChange("classic")}
                 disabled={isSaving || isSavingUiTheme}
@@ -115,8 +115,8 @@ export function SettingsDialog({
                 经典简洁
               </button>
               <button
-                className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
-                  uiTheme === "rpg-parchment" ? "bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
+                className={`settings-segment-option rounded px-3 py-1.5 text-sm font-semibold transition ${
+                  uiTheme === "rpg-parchment" ? "settings-segment-active bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
                 }`}
                 onClick={() => void onUiThemeChange("rpg-parchment")}
                 disabled={isSaving || isSavingUiTheme}
@@ -128,10 +128,10 @@ export function SettingsDialog({
 
           <div className="mt-5">
             <div className="text-sm font-semibold text-neutral-800">关闭窗口时</div>
-            <div className="mt-2 inline-flex overflow-hidden rounded-md border border-neutral-300 bg-white/70 p-1">
+            <div className="settings-segment mt-2 inline-flex overflow-hidden rounded-md border border-neutral-300 bg-white/70 p-1">
               <button
-                className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
-                  trayBehavior === "exit" ? "bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
+                className={`settings-segment-option rounded px-3 py-1.5 text-sm font-semibold transition ${
+                  trayBehavior === "exit" ? "settings-segment-active bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
                 }`}
                 onClick={() => void onTrayBehaviorChange("exit")}
                 disabled={isSaving || isSavingTrayBehavior}
@@ -139,8 +139,8 @@ export function SettingsDialog({
                 直接退出
               </button>
               <button
-                className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
-                  trayBehavior === "minimize_to_tray" ? "bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
+                className={`settings-segment-option rounded px-3 py-1.5 text-sm font-semibold transition ${
+                  trayBehavior === "minimize_to_tray" ? "settings-segment-active bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
                 }`}
                 onClick={() => void onTrayBehaviorChange("minimize_to_tray")}
                 disabled={isSaving || isSavingTrayBehavior}
@@ -152,10 +152,10 @@ export function SettingsDialog({
 
           <div className="mt-5">
             <div className="text-sm font-semibold text-neutral-800">自动更新</div>
-            <div className="mt-2 inline-flex overflow-hidden rounded-md border border-neutral-300 bg-white/70 p-1">
+            <div className="settings-segment mt-2 inline-flex overflow-hidden rounded-md border border-neutral-300 bg-white/70 p-1">
               <button
-                className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
-                  autoUpdateEnabled ? "bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
+                className={`settings-segment-option rounded px-3 py-1.5 text-sm font-semibold transition ${
+                  autoUpdateEnabled ? "settings-segment-active bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
                 }`}
                 onClick={() => void onAutoUpdateEnabledChange(true)}
                 disabled={isSaving || isSavingAutoUpdate}
@@ -163,8 +163,8 @@ export function SettingsDialog({
                 开启
               </button>
               <button
-                className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
-                  !autoUpdateEnabled ? "bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
+                className={`settings-segment-option rounded px-3 py-1.5 text-sm font-semibold transition ${
+                  !autoUpdateEnabled ? "settings-segment-active bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
                 }`}
                 onClick={() => void onAutoUpdateEnabledChange(false)}
                 disabled={isSaving || isSavingAutoUpdate}
@@ -177,10 +177,10 @@ export function SettingsDialog({
           <div className="mt-5">
             <div className="text-sm font-semibold text-neutral-800">用量百分比显示</div>
             <p className="mt-1 text-xs text-neutral-500">Gemini 与 Antigravity 共用；切换后立即作用于已查询的用量。</p>
-            <div className="mt-2 inline-flex overflow-hidden rounded-md border border-neutral-300 bg-white/70 p-1">
+            <div className="settings-segment mt-2 inline-flex overflow-hidden rounded-md border border-neutral-300 bg-white/70 p-1">
               <button
-                className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
-                  usageDisplayMode === "used" ? "bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
+                className={`settings-segment-option rounded px-3 py-1.5 text-sm font-semibold transition ${
+                  usageDisplayMode === "used" ? "settings-segment-active bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
                 }`}
                 onClick={() => void onUsageDisplayModeChange("used")}
                 disabled={isSaving || isSavingUsageDisplayMode}
@@ -188,8 +188,8 @@ export function SettingsDialog({
                 已用百分比
               </button>
               <button
-                className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
-                  usageDisplayMode === "remaining" ? "bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
+                className={`settings-segment-option rounded px-3 py-1.5 text-sm font-semibold transition ${
+                  usageDisplayMode === "remaining" ? "settings-segment-active bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
                 }`}
                 onClick={() => void onUsageDisplayModeChange("remaining")}
                 disabled={isSaving || isSavingUsageDisplayMode}
