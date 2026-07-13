@@ -1,5 +1,5 @@
 import { FolderOpen, RefreshCw, X } from "lucide-react";
-import type { RevealTarget, TargetTool, TrayBehavior, UsageDisplayMode } from "../../shared/types";
+import type { RevealTarget, TargetTool, TrayBehavior, UiTheme, UsageDisplayMode } from "../../shared/types";
 import { TOOL_LABELS } from "../constants";
 import type { StatusMessage } from "../types";
 import { PathLine, SettingsStatusBar } from "./StatusBar";
@@ -13,15 +13,18 @@ export function SettingsDialog({
   trayBehavior,
   autoUpdateEnabled,
   usageDisplayMode,
+  uiTheme,
   isSaving,
   isSavingTrayBehavior,
   isSavingAutoUpdate,
   isSavingUsageDisplayMode,
+  isSavingUiTheme,
   status,
   onProfilesRootChange,
   onTrayBehaviorChange,
   onAutoUpdateEnabledChange,
   onUsageDisplayModeChange,
+  onUiThemeChange,
   onSelectProfilesRoot,
   onSave,
   onReveal,
@@ -35,15 +38,18 @@ export function SettingsDialog({
   trayBehavior: TrayBehavior;
   autoUpdateEnabled: boolean;
   usageDisplayMode: UsageDisplayMode;
+  uiTheme: UiTheme;
   isSaving: boolean;
   isSavingTrayBehavior: boolean;
   isSavingAutoUpdate: boolean;
   isSavingUsageDisplayMode: boolean;
+  isSavingUiTheme: boolean;
   status?: StatusMessage;
   onProfilesRootChange: (value: string) => void;
   onTrayBehaviorChange: (value: TrayBehavior) => void | Promise<void>;
   onAutoUpdateEnabledChange: (enabled: boolean) => void | Promise<void>;
   onUsageDisplayModeChange: (mode: UsageDisplayMode) => void | Promise<void>;
+  onUiThemeChange: (theme: UiTheme) => void | Promise<void>;
   onSelectProfilesRoot: () => void;
   onSave: () => void;
   onReveal: (target: RevealTarget) => void;
@@ -94,6 +100,31 @@ export function SettingsDialog({
               </div>
             </>
           ) : null}
+
+          <div className="mt-5">
+            <div className="text-sm font-semibold text-neutral-800">界面皮肤</div>
+            <p className="mt-1 text-xs text-neutral-500">只改变外观，不影响账号、凭据和用量数据。</p>
+            <div className="mt-2 inline-flex overflow-hidden rounded-md border border-neutral-300 bg-white/70 p-1">
+              <button
+                className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
+                  uiTheme === "classic" ? "bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
+                }`}
+                onClick={() => void onUiThemeChange("classic")}
+                disabled={isSaving || isSavingUiTheme}
+              >
+                经典简洁
+              </button>
+              <button
+                className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
+                  uiTheme === "rpg-parchment" ? "bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"
+                }`}
+                onClick={() => void onUiThemeChange("rpg-parchment")}
+                disabled={isSaving || isSavingUiTheme}
+              >
+                冒险者手记
+              </button>
+            </div>
+          </div>
 
           <div className="mt-5">
             <div className="text-sm font-semibold text-neutral-800">关闭窗口时</div>

@@ -12,6 +12,7 @@ import type {
   RevealTarget,
   TargetTool,
   TrayBehavior,
+  UiTheme,
   UsageDisplayMode
 } from "../shared/types";
 import { CurrentAccountPanel } from "./components/CurrentAccountPanel";
@@ -31,6 +32,7 @@ export function App() {
   const [trayBehaviorDraft, setTrayBehaviorDraft] = useState<TrayBehavior>("exit");
   const [autoUpdateEnabledDraft, setAutoUpdateEnabledDraft] = useState(true);
   const [usageDisplayModeDraft, setUsageDisplayModeDraft] = useState<UsageDisplayMode>("used");
+  const [uiThemeDraft, setUiThemeDraft] = useState<UiTheme>("classic");
   const [selectedTool, setSelectedTool] = useState<TargetTool>("gemini");
   const [result, setResult] = useState<ProfileListResult>(emptyResult);
   const [status, setStatus] = useState<StatusMessage>({
@@ -49,6 +51,7 @@ export function App() {
   const [isSavingTrayBehavior, setIsSavingTrayBehavior] = useState(false);
   const [isSavingAutoUpdate, setIsSavingAutoUpdate] = useState(false);
   const [isSavingUsageDisplayMode, setIsSavingUsageDisplayMode] = useState(false);
+  const [isSavingUiTheme, setIsSavingUiTheme] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState<StatusMessage | undefined>();
   const [nicknameEditorProfile, setNicknameEditorProfile] = useState<ProfileInfo | undefined>();
   const [nicknameDraft, setNicknameDraft] = useState("");
@@ -143,6 +146,7 @@ export function App() {
         setTrayBehaviorDraft(nextSettings.trayBehavior ?? "exit");
         setAutoUpdateEnabledDraft(nextSettings.autoUpdateEnabled !== false);
         setUsageDisplayModeDraft(nextSettings.usageDisplayMode ?? "used");
+        setUiThemeDraft(nextSettings.uiTheme ?? "classic");
         await loadProfiles(nextSelectedTool);
       } catch (error) {
         if (mounted) {
@@ -240,6 +244,7 @@ export function App() {
       setTrayBehaviorDraft(nextSettings.trayBehavior ?? "exit");
       setAutoUpdateEnabledDraft(nextSettings.autoUpdateEnabled !== false);
       setUsageDisplayModeDraft(nextSettings.usageDisplayMode ?? "used");
+      setUiThemeDraft(nextSettings.uiTheme ?? "classic");
       setUsageByProfile({});
       const nextResult = await loadProfiles(selectedTool);
       if (nextResult) {
@@ -355,6 +360,30 @@ export function App() {
       setSettingsStatus({ tone: "error", text: message });
     } finally {
       setIsSavingUsageDisplayMode(false);
+    }
+  }
+
+  async function saveUiTheme(theme: UiTheme) {
+    if (profileActionInFlightRef.current || settingsActionInFlightRef.current) {
+      setSettingsStatus({ tone: "idle", text: "账号操作完成后再修改界面皮肤。" });
+      return;
+    }
+
+    const previousTheme = settings.uiTheme ?? "classic";
+    setUiThemeDraft(theme);
+    setIsSavingUiTheme(true);
+
+    try {
+      const nextSettings = await getApi().saveSettings({ uiTheme: theme });
+      setSettings(nextSettings);
+      setUiThemeDraft(nextSettings.uiTheme ?? "classic");
+    } catch (error) {
+      const message = getErrorMessage(error);
+      setUiThemeDraft(previousTheme);
+      setStatus({ tone: "error", text: message });
+      setSettingsStatus({ tone: "error", text: message });
+    } finally {
+      setIsSavingUiTheme(false);
     }
   }
 
@@ -750,7 +779,7 @@ export function App() {
   const isToolSwitchDisabled = isLoading || isProfileActionBusy || isSavingSettings || isUsageRefreshBusy;
 
   return (
-    <main className="app-parchment min-h-screen text-neutral-950 antialiased">
+    <main className="app-parchment min-h-screen text-neutral-950 antialiased" data-theme={uiThemeDraft}>
       <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 pb-6 pt-5">
         <header className="app-header flex items-center justify-between gap-4 border-b pb-3.5">
           <h1 className="flex shrink-0 items-center gap-1.5 text-xl font-semibold text-neutral-950">
@@ -787,6 +816,7 @@ export function App() {
                   setTrayBehaviorDraft(settings.trayBehavior ?? "exit");
                   setAutoUpdateEnabledDraft(settings.autoUpdateEnabled !== false);
                   setUsageDisplayModeDraft(settings.usageDisplayMode ?? "used");
+                  setUiThemeDraft(settings.uiTheme ?? "classic");
                   setIsSettingsOpen(true);
                 }}
                 title="打开设置"
@@ -871,15 +901,18 @@ export function App() {
             trayBehavior={trayBehaviorDraft}
             autoUpdateEnabled={autoUpdateEnabledDraft}
             usageDisplayMode={usageDisplayModeDraft}
+            uiTheme={uiThemeDraft}
             isSaving={isSavingSettings}
             isSavingTrayBehavior={isSavingTrayBehavior}
             isSavingAutoUpdate={isSavingAutoUpdate}
             isSavingUsageDisplayMode={isSavingUsageDisplayMode}
+            isSavingUiTheme={isSavingUiTheme}
             status={settingsStatus}
             onProfilesRootChange={setProfilesRootDraft}
             onTrayBehaviorChange={saveTrayBehavior}
             onAutoUpdateEnabledChange={saveAutoUpdateEnabled}
             onUsageDisplayModeChange={saveUsageDisplayMode}
+            onUiThemeChange={saveUiTheme}
             onSelectProfilesRoot={selectProfilesRoot}
             onSave={saveProfilesRoot}
             onReveal={reveal}

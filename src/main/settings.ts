@@ -6,6 +6,7 @@ import type {
   LastSwitchResult,
   TargetTool,
   TrayBehavior,
+  UiTheme,
   UsageDisplayMode,
   WindowBounds
 } from "../shared/types";
@@ -15,7 +16,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   profilesRoot: getDefaultProfilesRoot(),
   selectedTool: "gemini",
   autoUpdateEnabled: true,
-  usageDisplayMode: "used"
+  usageDisplayMode: "used",
+  uiTheme: "classic"
 };
 const saveQueues = new Map<string, Promise<AppSettings>>();
 
@@ -74,7 +76,8 @@ function sanitizeSettings(value: unknown): AppSettings {
     profilesRoot,
     selectedTool: sanitizeTargetTool(input.selectedTool),
     autoUpdateEnabled: input.autoUpdateEnabled !== false,
-    usageDisplayMode: sanitizeUsageDisplayMode(input.usageDisplayMode)
+    usageDisplayMode: sanitizeUsageDisplayMode(input.usageDisplayMode),
+    uiTheme: sanitizeUiTheme(input.uiTheme)
   };
 
   settings.trayBehavior = sanitizeTrayBehavior(input.trayBehavior);
@@ -116,6 +119,10 @@ function sanitizeTargetTool(value: unknown): TargetTool {
 
 function sanitizeUsageDisplayMode(value: unknown): UsageDisplayMode {
   return value === "remaining" ? "remaining" : "used";
+}
+
+function sanitizeUiTheme(value: unknown): UiTheme {
+  return value === "rpg-parchment" ? "rpg-parchment" : "classic";
 }
 
 function sanitizeLastSwitch(value: unknown): LastSwitchResult | undefined {

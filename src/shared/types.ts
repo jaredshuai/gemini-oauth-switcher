@@ -10,6 +10,7 @@ export type TargetTool = "gemini" | "antigravity-cli";
 export type RevealTarget = "profilesRoot" | "targetGeminiDir" | "targetAntigravityCliDir";
 /** Global usage percentage display preference shared by Gemini and Antigravity. */
 export type UsageDisplayMode = "used" | "remaining";
+export type UiTheme = "classic" | "rpg-parchment";
 
 export interface AntigravityProfileRecord {
   id: string;
@@ -27,6 +28,8 @@ export interface AppSettings {
   autoUpdateEnabled?: boolean;
   /** How usage percentages are shown. Default/backward-compatible: used percentage. */
   usageDisplayMode?: UsageDisplayMode;
+  /** Built-in renderer skin. Default/backward-compatible: classic. */
+  uiTheme?: UiTheme;
   lastSelectedProfile?: string;
   lastSwitch?: LastSwitchResult;
   profileNicknames?: Record<string, string>;

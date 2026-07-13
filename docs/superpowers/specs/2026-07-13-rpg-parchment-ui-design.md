@@ -2,7 +2,7 @@
 
 ## Goal
 
-Increase the application's dark-fantasy game UI character while keeping it a fast, readable Windows account utility.
+Add an optional dark-fantasy game skin while keeping the existing interface as the safe default.
 
 ## Direction
 
@@ -15,6 +15,16 @@ Use a restrained RPG equipment-screen language: real raster paper texture, engra
 - No change to account list columns or action placement.
 - Texture and decoration must remain low contrast behind small text.
 - Existing reduced-motion behavior remains supported.
+- The classic skin remains the default for existing and new users.
+- Theme switching is immediate, persistent, and does not trigger account or usage operations.
+
+## Theme Model
+
+- `classic`: the current production visual style from `main`.
+- `rpg-parchment`: the optional `冒险者手记` skin described below.
+- Both themes use the same React structure and interaction behavior.
+- The selected theme is stored as non-sensitive application settings.
+- Arbitrary CSS or JavaScript theme plugins are not supported.
 
 ## Component Treatment
 
@@ -32,3 +42,4 @@ Use a restrained RPG equipment-screen language: real raster paper texture, engra
 - Text contrast and scan speed remain at least as good as the current UI.
 - Gemini and Antigravity layouts remain stable at the existing desktop window size.
 - Typecheck, tests, build, and visual smoke checks pass.
+- Settings can switch between `经典简洁` and `冒险者手记` without a reload.

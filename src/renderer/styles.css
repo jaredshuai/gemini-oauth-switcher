@@ -13,7 +13,7 @@
 body {
   margin: 0;
   min-width: 0;
-  background: #e9deca;
+  background: #f4eddf;
   font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
 }
 
@@ -508,4 +508,175 @@ button:focus-visible {
 .console-action-button:not(:disabled):hover {
   border-color: rgba(252, 211, 77, 0.52);
   background: rgba(252, 211, 77, 0.16);
+}
+
+/* Classic stays visually compatible with the production UI. */
+[data-theme="classic"].app-parchment {
+  background-color: #f4eddf;
+  background-image:
+    linear-gradient(90deg, rgba(91, 62, 29, 0.035), transparent 13%, transparent 87%, rgba(91, 62, 29, 0.035)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), transparent 34%, rgba(120, 83, 38, 0.025)),
+    url("./assets/parchment-texture.png");
+  background-size: 100% 100%, 100% 100%, 512px 512px;
+  background-blend-mode: normal, normal, soft-light;
+  box-shadow: none;
+}
+
+[data-theme="classic"] .app-header {
+  border-color: rgba(111, 82, 46, 0.28);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+[data-theme="classic"] .mode-loadout {
+  padding: 0.2rem 0.35rem;
+}
+
+[data-theme="classic"] .mode-loadout-track {
+  grid-template-columns: max-content 2rem max-content;
+}
+
+[data-theme="classic"] .mode-loadout-slot {
+  min-height: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+[data-theme="classic"] .mode-loadout-active .mode-loadout-sigil {
+  background: transparent;
+  box-shadow: 0 0 0 1px rgba(95, 48, 36, 0.12);
+}
+
+[data-theme="classic"] .mode-loadout-active .mode-loadout-name {
+  border-bottom: 0;
+  padding: 0.05rem 0.18rem 0.38rem;
+  background-image: linear-gradient(90deg, transparent, rgba(95, 48, 36, 0.7) 13%, rgba(95, 48, 36, 0.42) 87%, transparent);
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  background-size: 100% 2px;
+}
+
+[data-theme="classic"] .mode-loadout-secondary:hover {
+  border-color: transparent;
+  background: transparent;
+}
+
+[data-theme="classic"] .mode-loadout-swap {
+  width: auto;
+  height: auto;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+[data-theme="classic"] .tool-button,
+[data-theme="classic"] .primary-button,
+[data-theme="classic"] .switch-button,
+[data-theme="classic"] .danger-icon-button {
+  box-shadow: none;
+}
+
+[data-theme="classic"] .primary-button {
+  border: 0;
+  background: rgb(23 23 23);
+}
+
+[data-theme="classic"] .credential-console {
+  border: 0;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 0 0 1px rgba(64, 43, 22, 0.78),
+    0 12px 28px rgba(63, 43, 23, 0.14);
+}
+
+[data-theme="classic"] .account-vault {
+  border: 0;
+  box-shadow:
+    0 0 0 1px rgba(111, 82, 46, 0.22),
+    0 8px 24px rgba(72, 49, 24, 0.07);
+}
+
+[data-theme="classic"] .parchment-section-header {
+  border-color: rgba(111, 82, 46, 0.18);
+  background: rgba(255, 248, 232, 0.42);
+  box-shadow: none;
+}
+
+[data-theme="classic"] .parchment-section-header h2 {
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: rgb(10 10 10);
+}
+
+[data-theme="classic"] .parchment-column-header {
+  border-color: rgba(111, 82, 46, 0.16);
+  background: rgba(101, 72, 36, 0.045);
+  box-shadow: none;
+}
+
+[data-theme="classic"] .parchment-count {
+  box-shadow: none;
+}
+
+[data-theme="classic"] .parchment-dialog {
+  border-color: rgb(212 212 212);
+  background: #f7f3ea;
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+}
+
+[data-theme="classic"] .profile-row-current {
+  background-color: rgba(236, 253, 245, 0.35);
+  box-shadow: none;
+}
+
+[data-theme="classic"] .profile-row-current::before {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 3px;
+  background: rgb(16 185 129);
+  content: "";
+}
+
+[data-theme="classic"] .profile-row-current:hover {
+  background-color: rgba(236, 253, 245, 0.58);
+}
+
+[data-theme="classic"] .account-slot {
+  border-color: #d8cbb4;
+  border-radius: 0.375rem;
+  background: #fbf6e9;
+  box-shadow: none;
+}
+
+[data-theme="classic"] .account-slot-current {
+  border-color: rgb(110 231 183);
+  background: rgba(209, 250, 229, 0.7);
+  box-shadow: none;
+}
+
+[data-theme="classic"] .current-seal {
+  min-height: 1.35rem;
+  border: 0;
+  background: rgb(209 250 229);
+  padding: 0.15rem 0.5rem;
+  color: rgb(6 95 70);
+  font-size: 0.75rem;
+  font-weight: 700;
+  transform: none;
+  box-shadow: none;
+}
+
+[data-theme="classic"] .quota-track {
+  height: 0.375rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(229 229 229);
+  box-shadow: none;
+}
+
+[data-theme="classic"] .quota-fill {
+  border-radius: 999px;
+  box-shadow: none;
 }
