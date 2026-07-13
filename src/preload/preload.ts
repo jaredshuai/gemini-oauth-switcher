@@ -1,8 +1,14 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AppSettings, GeminiSwitcherApi, OAuthLoginCancelRequest, OAuthLoginSaveRequest, RevealTarget, TargetTool } from "../shared/types";
+import type { AppSettings, AppUpdateStatus, GeminiSwitcherApi, OAuthLoginCancelRequest, OAuthLoginSaveRequest, RevealTarget, TargetTool } from "../shared/types";
 
 const api: GeminiSwitcherApi = {
   getRuntimeInfo: () => ipcRenderer.invoke("app:runtimeInfo"),
+  getUpdateStatus: () => ipcRenderer.invoke("app:updateStatus"),
+  onUpdateStatusChanged: (listener: (status: AppUpdateStatus) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: AppUpdateStatus) => listener(status);
+    ipcRenderer.on("app:updateStatusChanged", handler);
+    return () => ipcRenderer.removeListener("app:updateStatusChanged", handler);
+  },
   getSettings: () => ipcRenderer.invoke("settings:get"),
   saveSettings: (settings: Partial<AppSettings>) => ipcRenderer.invoke("settings:save", settings),
   listProfiles: (targetTool?: TargetTool) => ipcRenderer.invoke("profiles:list", targetTool),

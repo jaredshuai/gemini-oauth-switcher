@@ -11,6 +11,12 @@ export type RevealTarget = "profilesRoot" | "targetGeminiDir" | "targetAntigravi
 /** Global usage percentage display preference shared by Gemini and Antigravity. */
 export type UsageDisplayMode = "used" | "remaining";
 export type UiTheme = "classic" | "rpg-parchment";
+export type AppUpdatePhase = "disabled" | "idle" | "checking" | "up-to-date" | "downloading" | "downloaded" | "error";
+
+export interface AppUpdateStatus {
+  phase: AppUpdatePhase;
+  latestVersion?: string;
+}
 
 export interface AppRuntimeInfo {
   isPackaged: boolean;
@@ -172,6 +178,8 @@ export interface OAuthLoginCancelRequest {
 
 export interface GeminiSwitcherApi {
   getRuntimeInfo(): Promise<AppRuntimeInfo>;
+  getUpdateStatus(): Promise<AppUpdateStatus>;
+  onUpdateStatusChanged(listener: (status: AppUpdateStatus) => void): () => void;
   getSettings(): Promise<AppSettings>;
   saveSettings(settings: Partial<AppSettings>): Promise<AppSettings>;
   listProfiles(targetTool?: TargetTool): Promise<ProfileListResult>;

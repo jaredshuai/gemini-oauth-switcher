@@ -21,6 +21,34 @@ describe("renderer utils", () => {
     expect(shouldShowAutoUpdateSetting!({ isPortable: false })).toBe(true);
   });
 
+  it("describes current update state with the latest version when available", () => {
+    const describeAppUpdate = (rendererUtils as typeof rendererUtils & {
+      describeAppUpdate?: (
+        status: { phase: string; latestVersion?: string },
+        runtime: { isPackaged: boolean; isPortable: boolean },
+        autoUpdateEnabled: boolean
+      ) => { text: string; tone: string };
+    }).describeAppUpdate;
+
+    expect(describeAppUpdate).toBeTypeOf("function");
+    expect(describeAppUpdate!({ phase: "downloading", latestVersion: "0.2.4" }, {
+      isPackaged: true,
+      isPortable: false
+    }, true)).toEqual({ text: "新版本 v0.2.4 · 下载中", tone: "active" });
+    expect(describeAppUpdate!({ phase: "downloaded", latestVersion: "v0.2.4" }, {
+      isPackaged: true,
+      isPortable: false
+    }, true)).toEqual({ text: "新版本 v0.2.4 · 等待安装", tone: "ready" });
+    expect(describeAppUpdate!({ phase: "up-to-date" }, {
+      isPackaged: true,
+      isPortable: false
+    }, true)).toEqual({ text: "已是最新版本", tone: "ready" });
+    expect(describeAppUpdate!({ phase: "idle" }, {
+      isPackaged: true,
+      isPortable: true
+    }, true)).toEqual({ text: "便携版需手动更新", tone: "muted" });
+  });
+
   it("uses a resolved account email when no custom nickname exists", () => {
     const profile: ProfileInfo = {
       id: "agy-current",

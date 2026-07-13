@@ -538,6 +538,57 @@ button:focus-visible {
   margin-top: 0;
 }
 
+.settings-version-bar {
+  display: flex;
+  min-height: 2.8rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.8rem;
+  border-top: 1px solid rgb(212 212 212 / 0.82);
+  padding: 0.75rem 0.15rem 0;
+}
+
+.settings-version-current {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.55rem;
+}
+
+.settings-version-label {
+  color: rgb(115 115 115);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.settings-version-number {
+  color: rgb(38 38 38);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-version-update {
+  min-width: 0;
+  text-align: right;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.settings-version-update-muted {
+  color: rgb(115 115 115);
+}
+
+.settings-version-update-active {
+  color: rgb(161 98 7);
+}
+
+.settings-version-update-ready {
+  color: rgb(21 128 61);
+}
+
 [data-theme="rpg-parchment"] .settings-dialog-backdrop {
   background: oklch(18% 0.025 48 / 0.56);
 }
@@ -724,6 +775,35 @@ button:focus-visible {
   color: oklch(35% 0.035 52);
 }
 
+[data-theme="rpg-parchment"] .settings-version-bar {
+  border-color: oklch(51% 0.05 54 / 0.38);
+  box-shadow: inset 0 1px 0 oklch(97% 0.02 82 / 0.18);
+}
+
+[data-theme="rpg-parchment"] .settings-version-label {
+  color: oklch(43% 0.035 56);
+  font-family: "Palatino Linotype", Georgia, serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+[data-theme="rpg-parchment"] .settings-version-number {
+  color: oklch(31% 0.05 49);
+  text-shadow: 0 1px 0 oklch(98% 0.02 82 / 0.3);
+}
+
+[data-theme="rpg-parchment"] .settings-version-update-muted {
+  color: oklch(45% 0.035 58);
+}
+
+[data-theme="rpg-parchment"] .settings-version-update-active {
+  color: oklch(43% 0.09 58);
+}
+
+[data-theme="rpg-parchment"] .settings-version-update-ready {
+  color: oklch(38% 0.075 132);
+}
+
 [data-theme="rpg-parchment"] .settings-dialog-sheet .parchment-status {
   border-color: oklch(55% 0.05 56 / 0.4);
   background: oklch(91% 0.04 78 / 0.5);
@@ -751,6 +831,16 @@ button:focus-visible {
 
   .settings-segment {
     justify-self: start;
+  }
+
+  .settings-version-bar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .settings-version-update {
+    text-align: left;
   }
 }
 

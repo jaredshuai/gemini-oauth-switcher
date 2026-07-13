@@ -1,4 +1,4 @@
-import type { AppSettings } from "../shared/types";
+import type { AppSettings, AppUpdateStatus } from "../shared/types";
 
 interface ShouldCheckForUpdatesOptions {
   settings: Pick<AppSettings, "autoUpdateEnabled">;
@@ -20,6 +20,7 @@ interface AutoUpdaterLike {
   autoDownload: boolean;
   autoInstallOnAppQuit: boolean;
   on(eventName: "update-available", listener: (info: { version?: string }) => void): unknown;
+  on(eventName: "update-not-available", listener: (info: { version?: string }) => void): unknown;
   on(eventName: "update-downloaded", listener: (info: { version?: string }) => void): unknown;
   on(eventName: "error", listener: (error: unknown) => void): unknown;
   checkForUpdates(): Promise<unknown>;
@@ -36,11 +37,13 @@ interface AutoUpdateManagerOptions {
   clearTimeoutFn?: (timer: unknown) => void;
   showMessageBox: (options: UpdateDialogOptions) => Promise<{ response: number }>;
   prepareToQuitForUpdate: () => void;
+  onStatusChange?: (status: AppUpdateStatus) => void;
   logWarning?: (message: string, error?: unknown) => void;
 }
 
 export interface AutoUpdateManager {
   setEnabled(enabled: boolean): Promise<boolean>;
+  getStatus(): AppUpdateStatus;
 }
 
 export function shouldCheckForUpdates(options: ShouldCheckForUpdatesOptions): boolean {
@@ -56,6 +59,7 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
   private updaterPromise?: Promise<AutoUpdaterLike>;
   private announcedUpdateVersion?: string;
   private downloadNoticePromise?: Promise<void>;
+  private status: AppUpdateStatus = { phase: "idle" };
 
   constructor(private readonly options: AutoUpdateManagerOptions) {
     this.updater = options.updater;
@@ -79,12 +83,14 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
 
     const activationGeneration = ++this.activationGeneration;
     this.enabled = true;
+    this.setStatus({ phase: "idle" });
     let updater: AutoUpdaterLike;
     try {
       updater = await this.getUpdater();
     } catch (error) {
       if (activationGeneration === this.activationGeneration) {
         this.enabled = false;
+        this.setStatus({ phase: "error" });
       }
       throw error;
     }
@@ -104,8 +110,13 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
     return true;
   }
 
+  getStatus(): AppUpdateStatus {
+    return { ...this.status };
+  }
+
   private disable(): void {
     this.enabled = false;
+    this.setStatus({ phase: "disabled" });
     this.announcedUpdateVersion = undefined;
     this.downloadNoticePromise = undefined;
     if (this.timer !== undefined) {
@@ -145,6 +156,7 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
 
     updater.on("error", (error) => {
       if (this.enabled) {
+        this.setStatus({ phase: "error", latestVersion: this.status.latestVersion });
         this.logWarning("Auto update check failed.", error);
       }
     });
@@ -158,6 +170,7 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
         return;
       }
       this.announcedUpdateVersion = versionKey;
+      this.setStatus({ phase: "downloading", latestVersion: info.version });
 
       const noticePromise = showUpdateDownloadStarted({
         showMessageBox: this.options.showMessageBox,
@@ -172,10 +185,16 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
         }
       });
     });
+    updater.on("update-not-available", () => {
+      if (this.enabled) {
+        this.setStatus({ phase: "up-to-date" });
+      }
+    });
     updater.on("update-downloaded", (info) => {
       if (!this.enabled) {
         return;
       }
+      this.setStatus({ phase: "downloaded", latestVersion: info.version ?? this.status.latestVersion });
       const downloadNoticePromise = this.downloadNoticePromise;
       void (async () => {
         await downloadNoticePromise;
@@ -202,8 +221,10 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
       if (!this.enabled) {
         return;
       }
+      this.setStatus({ phase: "checking" });
       void updater.checkForUpdates().catch((error: unknown) => {
         if (this.enabled) {
+          this.setStatus({ phase: "error" });
           this.logWarning("Auto update check failed.", error);
         }
       });
@@ -213,6 +234,14 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
   private logWarning(message: string, error?: unknown): void {
     const logWarning = this.options.logWarning ?? console.warn;
     logWarning(message, error);
+  }
+
+  private setStatus(status: AppUpdateStatus): void {
+    if (this.status.phase === status.phase && this.status.latestVersion === status.latestVersion) {
+      return;
+    }
+    this.status = status;
+    this.options.onStatusChange?.({ ...status });
   }
 }
 

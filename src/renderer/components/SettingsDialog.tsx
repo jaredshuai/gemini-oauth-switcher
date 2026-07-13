@@ -1,7 +1,8 @@
 import { FolderOpen, RefreshCw, X } from "lucide-react";
-import type { RevealTarget, TargetTool, TrayBehavior, UiTheme, UsageDisplayMode } from "../../shared/types";
+import type { AppRuntimeInfo, AppUpdateStatus, RevealTarget, TargetTool, TrayBehavior, UiTheme, UsageDisplayMode } from "../../shared/types";
 import { TOOL_LABELS } from "../constants";
 import type { StatusMessage } from "../types";
+import { describeAppUpdate, formatAppVersion } from "../utils";
 import { PathLine, SettingsStatusBar } from "./StatusBar";
 
 export function SettingsDialog({
@@ -13,6 +14,8 @@ export function SettingsDialog({
   trayBehavior,
   autoUpdateEnabled,
   showAutoUpdateSetting,
+  runtimeInfo,
+  updateStatus,
   usageDisplayMode,
   uiTheme,
   isSaving,
@@ -39,6 +42,8 @@ export function SettingsDialog({
   trayBehavior: TrayBehavior;
   autoUpdateEnabled: boolean;
   showAutoUpdateSetting: boolean;
+  runtimeInfo: AppRuntimeInfo;
+  updateStatus: AppUpdateStatus;
   usageDisplayMode: UsageDisplayMode;
   uiTheme: UiTheme;
   isSaving: boolean;
@@ -58,6 +63,7 @@ export function SettingsDialog({
   onClose: () => void;
 }) {
   const toolLabels = TOOL_LABELS[selectedTool];
+  const updateDisplay = describeAppUpdate(updateStatus, runtimeInfo, autoUpdateEnabled);
 
   return (
     <div className="settings-dialog-backdrop fixed inset-0 z-50 flex items-start justify-center bg-neutral-950/35 px-4 py-10" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
@@ -231,6 +237,16 @@ export function SettingsDialog({
 
             <div className="settings-path">
               <PathLine label={toolLabels.targetLabel} value={targetOAuthPath} />
+            </div>
+
+            <div className="settings-version-bar" aria-label="应用版本">
+              <div className="settings-version-current">
+                <span className="settings-version-label">当前版本</span>
+                <span className="settings-version-number">{formatAppVersion(runtimeInfo.version)}</span>
+              </div>
+              <div className={`settings-version-update settings-version-update-${updateDisplay.tone}`}>
+                {updateDisplay.text}
+              </div>
             </div>
           </div>
         </div>

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, type OpenDialogOptions } from "electron";
-import type { AppSettings, OAuthLoginCancelRequest, OAuthLoginInspectResult, OAuthLoginSaveRequest, OAuthLoginSession, RevealTarget, TargetTool, TrayBehavior } from "../shared/types";
+import type { AppSettings, AppUpdateStatus, OAuthLoginCancelRequest, OAuthLoginInspectResult, OAuthLoginSaveRequest, OAuthLoginSession, RevealTarget, TargetTool, TrayBehavior } from "../shared/types";
 import { getAntigravityLoginRoot, getDefaultProfilesRoot, getDefaultTargetAntigravityCliDir, getDefaultTargetGeminiDir, getDefaultTargetOAuthPath, getSettingsPath } from "./paths";
 import {
   cleanupOAuthLoginSession,
@@ -268,6 +268,17 @@ function logStaleLoginCleanupResult(result: { failed: string[]; skipped: string[
   }
 }
 
+function currentUpdateStatus(): AppUpdateStatus {
+  return autoUpdateManager?.getStatus() ?? { phase: "idle" };
+}
+
+function broadcastUpdateStatus(status: AppUpdateStatus): void {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
+    return;
+  }
+  mainWindow.webContents.send("app:updateStatusChanged", status);
+}
+
 function syncAutoUpdateSetting(settings: AppSettings): void {
   autoUpdateManager ??= createAutoUpdateManager({
     isPackaged: app.isPackaged,
@@ -276,6 +287,7 @@ function syncAutoUpdateSetting(settings: AppSettings): void {
     prepareToQuitForUpdate: () => {
       isQuitting = true;
     },
+    onStatusChange: broadcastUpdateStatus,
     logWarning: (message, error) => {
       console.warn(message, error);
     }
@@ -357,6 +369,8 @@ function registerIpcHandlers(): void {
     isPortable: Boolean(process.env.PORTABLE_EXECUTABLE_DIR),
     version: app.getVersion()
   }));
+
+  ipcMain.handle("app:updateStatus", () => currentUpdateStatus());
 
   ipcMain.handle("settings:get", async () => readSettings(settingsPath()));
 

@@ -81,6 +81,28 @@ describe("auto update checks", () => {
     });
   });
 
+  it("retains the latest version and download phase for the renderer", async () => {
+    const { updater, listeners } = createFakeUpdater();
+    const manager = createAutoUpdateManager({
+      isPackaged: true,
+      isPortable: false,
+      updater,
+      setTimeoutFn: () => Symbol("timer"),
+      clearTimeoutFn: () => undefined,
+      showMessageBox: async () => ({ response: 1 }),
+      prepareToQuitForUpdate: vi.fn()
+    });
+    expect(manager.getStatus).toBeTypeOf("function");
+    await manager.setEnabled(true);
+    expect(manager.getStatus()).toEqual({ phase: "idle" });
+
+    listeners.get("update-available")?.({ version: "0.2.4" });
+    expect(manager.getStatus()).toEqual({ phase: "downloading", latestVersion: "0.2.4" });
+
+    listeners.get("update-downloaded")?.({ version: "0.2.4" });
+    expect(manager.getStatus()).toEqual({ phase: "downloaded", latestVersion: "0.2.4" });
+  });
+
   it("waits for the download notice before showing the install prompt", async () => {
     const { updater, listeners } = createFakeUpdater();
     let closeDownloadNotice: (() => void) | undefined;

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } fr
 import type {
   AppSettings,
   AppRuntimeInfo,
+  AppUpdateStatus,
   LastSwitchResult,
   LocalDiagnosticsResult,
   OAuthLoginInspectResult,
@@ -30,6 +31,7 @@ import { copyText, describeUsageFailure, getApi, getErrorMessage, getProfileDisp
 export function App() {
   const [settings, setSettings] = useState<AppSettings>({ profilesRoot: "" });
   const [runtimeInfo, setRuntimeInfo] = useState<AppRuntimeInfo>({ isPackaged: false, isPortable: false, version: "" });
+  const [updateStatus, setUpdateStatus] = useState<AppUpdateStatus>({ phase: "idle" });
   const [profilesRootDraft, setProfilesRootDraft] = useState("");
   const [trayBehaviorDraft, setTrayBehaviorDraft] = useState<TrayBehavior>("exit");
   const [autoUpdateEnabledDraft, setAutoUpdateEnabledDraft] = useState(true);
@@ -130,12 +132,13 @@ export function App() {
 
     async function boot() {
       try {
-        const [nextSettings, diagnostics, nextRuntimeInfo] = await Promise.all([
+        const [nextSettings, diagnostics, nextRuntimeInfo, nextUpdateStatus] = await Promise.all([
           getApi().getSettings(),
           getApi()
             .getLocalDiagnostics()
             .catch(() => undefined),
-          getApi().getRuntimeInfo()
+          getApi().getRuntimeInfo(),
+          getApi().getUpdateStatus()
         ]);
         if (!mounted) {
           return;
@@ -143,6 +146,7 @@ export function App() {
 
         setSettings(nextSettings);
         setRuntimeInfo(nextRuntimeInfo);
+        setUpdateStatus(nextUpdateStatus);
         const nextSelectedTool = nextSettings.selectedTool ?? "gemini";
         setSelectedTool(nextSelectedTool);
         setLocalDiagnostics(diagnostics);
@@ -165,6 +169,15 @@ export function App() {
       mounted = false;
     };
   }, [loadProfiles]);
+
+  useEffect(() => getApi().onUpdateStatusChanged(setUpdateStatus), []);
+
+  useEffect(() => {
+    if (!isSettingsOpen) {
+      return;
+    }
+    void getApi().getUpdateStatus().then(setUpdateStatus).catch(() => undefined);
+  }, [isSettingsOpen]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -906,6 +919,8 @@ export function App() {
             trayBehavior={trayBehaviorDraft}
             autoUpdateEnabled={autoUpdateEnabledDraft}
             showAutoUpdateSetting={shouldShowAutoUpdateSetting(runtimeInfo)}
+            runtimeInfo={runtimeInfo}
+            updateStatus={updateStatus}
             usageDisplayMode={usageDisplayModeDraft}
             uiTheme={uiThemeDraft}
             isSaving={isSavingSettings}

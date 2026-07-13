@@ -1,4 +1,4 @@
-import type { AppRuntimeInfo, ProfileInfo, ProfileUsageResult, TargetTool, UsageDisplayMode } from "../shared/types";
+import type { AppRuntimeInfo, AppUpdateStatus, ProfileInfo, ProfileUsageResult, TargetTool, UsageDisplayMode } from "../shared/types";
 
 interface ElapsedSuffixes {
   now: string;
@@ -47,6 +47,46 @@ export const formatSwitchRelativeTime = formatProfileUpdatedTime;
 
 export function shouldShowAutoUpdateSetting(runtime: Pick<AppRuntimeInfo, "isPortable">): boolean {
   return !runtime.isPortable;
+}
+
+export function formatAppVersion(version: string): string {
+  const normalized = version.trim();
+  if (!normalized) {
+    return "未知";
+  }
+  return normalized.toLowerCase().startsWith("v") ? normalized : `v${normalized}`;
+}
+
+export function describeAppUpdate(
+  status: AppUpdateStatus,
+  runtime: Pick<AppRuntimeInfo, "isPackaged" | "isPortable">,
+  autoUpdateEnabled: boolean
+): { text: string; tone: "muted" | "active" | "ready" } {
+  if (!runtime.isPackaged) {
+    return { text: "开发环境", tone: "muted" };
+  }
+  if (runtime.isPortable) {
+    return { text: "便携版需手动更新", tone: "muted" };
+  }
+  if (!autoUpdateEnabled || status.phase === "disabled") {
+    return { text: "自动更新已关闭", tone: "muted" };
+  }
+
+  const latestVersion = status.latestVersion ? formatAppVersion(status.latestVersion) : undefined;
+  switch (status.phase) {
+    case "checking":
+      return { text: "正在检查更新", tone: "active" };
+    case "up-to-date":
+      return { text: "已是最新版本", tone: "ready" };
+    case "downloading":
+      return { text: latestVersion ? `新版本 ${latestVersion} · 下载中` : "新版本下载中", tone: "active" };
+    case "downloaded":
+      return { text: latestVersion ? `新版本 ${latestVersion} · 等待安装` : "新版本等待安装", tone: "ready" };
+    case "error":
+      return { text: "暂时无法检查更新", tone: "muted" };
+    default:
+      return { text: "自动检查更新已开启", tone: "muted" };
+  }
 }
 
 export function clampPercentage(value: number): number {
