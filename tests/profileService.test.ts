@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { deleteProfile, listProfiles, switchProfile, validateProfileName } from "../src/main/profileService";
+import { deleteProfile, listProfiles, registerCurrentProfile, switchProfile, validateProfileName } from "../src/main/profileService";
 import type { CredentialStore } from "../src/main/antigravityCredentialService";
 
 const tempRoots: string[] = [];
@@ -126,6 +126,47 @@ describe("profileService", () => {
     expect(result.profileName).toBe("carol");
     expect(result.sourceHash).toBe(sha256(sourceCreds));
     expect(result.targetHash).toBe(sha256(sourceCreds));
+  });
+
+  it("registers the current target OAuth as a new profile without changing its contents", async () => {
+    const root = await makeTempRoot();
+    const targetRoot = await makeTempRoot();
+    const targetOAuthPath = path.join(targetRoot, ".gemini", "oauth_creds.json");
+    const currentCreds = JSON.stringify({ account: "new.user@example.com", token: "opaque" });
+    await mkdir(path.dirname(targetOAuthPath), { recursive: true });
+    await writeFile(targetOAuthPath, currentCreds, "utf8");
+
+    const result = await registerCurrentProfile({
+      profilesRoot: root,
+      profileName: "new.user@example.com",
+      targetOAuthPath
+    });
+
+    const registeredOAuthPath = path.join(root, "new.user@example.com", ".gemini", "oauth_creds.json");
+    await expect(readFile(registeredOAuthPath, "utf8")).resolves.toBe(currentCreds);
+    expect(result).toMatchObject({
+      profileName: "new.user@example.com",
+      sourcePath: targetOAuthPath,
+      targetPath: registeredOAuthPath,
+      sourceHash: sha256(currentCreds),
+      targetHash: sha256(currentCreds)
+    });
+    expect((await readdir(root)).filter((entry) => entry.startsWith(".pending-register-"))).toEqual([]);
+  });
+
+  it("rejects registering the current OAuth over an existing profile", async () => {
+    const root = await makeTempRoot();
+    const targetRoot = await makeTempRoot();
+    const targetOAuthPath = path.join(targetRoot, ".gemini", "oauth_creds.json");
+    await mkdir(path.dirname(targetOAuthPath), { recursive: true });
+    await writeFile(targetOAuthPath, "current", "utf8");
+    await writeProfile(root, "existing", "old");
+
+    await expect(registerCurrentProfile({
+      profilesRoot: root,
+      profileName: "existing",
+      targetOAuthPath
+    })).rejects.toThrow(/already exists/i);
   });
 
   it("lists Antigravity CLI profile settings with hashes and marks the current target config", async () => {

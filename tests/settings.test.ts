@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir, homedir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -231,6 +231,30 @@ describe("settings defaults", () => {
       profileNicknames: { work: "Work" },
       windowBounds: { width: 900, height: 700 }
     });
+  });
+
+  it("recovers the last valid settings when the primary file is corrupted", async () => {
+    const root = await makeTempRoot();
+    const settingsPath = path.join(root, "settings.json");
+
+    await saveSettings(settingsPath, {
+      selectedTool: "antigravity-cli",
+      antigravityProfiles: [{
+        id: "agy-recoverable",
+        name: "recoverable@example.com",
+        accountEmail: "recoverable@example.com",
+        createdAt: 100,
+        updatedAt: 200
+      }]
+    });
+    await saveSettings(settingsPath, { trayBehavior: "minimize_to_tray" });
+    await writeFile(settingsPath, "{broken", "utf8");
+
+    await expect(readSettings(settingsPath)).resolves.toMatchObject({
+      selectedTool: "antigravity-cli",
+      antigravityProfiles: [{ id: "agy-recoverable" }]
+    });
+    await expect(readFile(`${settingsPath}.bak`, "utf8")).resolves.toContain("agy-recoverable");
   });
 
   it("stores the last switch receipt without credential hashes", async () => {

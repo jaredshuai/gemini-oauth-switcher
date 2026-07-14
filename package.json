@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@koromix/koffi-win32-x64": "3.1.1",
-    "electron-updater": "^6.8.3",
+    "electron-updater": "^6.8.9",
     "koffi": "^3.1.1",
     "lucide-react": "^1.14.0",
     "react": "^19.2.1",

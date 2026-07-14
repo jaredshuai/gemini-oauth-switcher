@@ -9,6 +9,14 @@ describe("packaged renderer config", () => {
     expect((viteConfig as { base?: string }).base).toBe("./");
   });
 
+  it("restricts the packaged renderer with a content security policy", () => {
+    const html = readFileSync(path.join(process.cwd(), "index.html"), "utf8");
+
+    expect(html).toContain("Content-Security-Policy");
+    expect(html).toContain("default-src 'self'");
+    expect(html).toContain("object-src 'none'");
+  });
+
   it("accepts only a release tag matching the package version", () => {
     const scriptPath = path.join(process.cwd(), "scripts", "verify-release-tag.mjs");
     const packageJson = JSON.parse(readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { version: string };

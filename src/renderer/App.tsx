@@ -25,6 +25,7 @@ import { SettingsDialog } from "./components/SettingsDialog";
 import { StatusBar } from "./components/StatusBar";
 import { TargetToolSwitch } from "./components/TargetToolSwitch";
 import { emptyResult, TOOL_LABELS } from "./constants";
+import { startOAuthLoginAutoInspect } from "./oauthLoginPolling";
 import type { StatusMessage, StatusVisibility } from "./types";
 import { copyText, describeUsageFailure, getApi, getErrorMessage, getProfileDisplayName, getProfileKey, shouldShowAutoUpdateSetting } from "./utils";
 
@@ -73,7 +74,7 @@ export function App() {
   const [isInspectingOAuthLogin, setIsInspectingOAuthLogin] = useState(false);
   const [isSavingOAuthLogin, setIsSavingOAuthLogin] = useState(false);
   const [isCancellingOAuthLogin, setIsCancellingOAuthLogin] = useState(false);
-  const [isRegisteringCurrentAntigravity, setIsRegisteringCurrentAntigravity] = useState(false);
+  const [isRegisteringCurrentProfile, setIsRegisteringCurrentProfile] = useState(false);
   const [statusVisibility, setStatusVisibility] = useState<StatusVisibility>("visible");
   const [, setRelativeTimeTick] = useState(0);
   const profileActionInFlightRef = useRef(false);
@@ -82,6 +83,7 @@ export function App() {
   const refreshingUsageProfilesRef = useRef<Set<string>>(new Set());
   const isRefreshingAllUsageRef = useRef(false);
   const autoAntigravityUsageQueriedKeyRef = useRef<string>("");
+  const oauthInspectionInFlightRef = useRef(false);
 
   const currentProfile = useMemo(
     () => result.profiles.find((profile) => profile.isCurrent),
@@ -190,21 +192,21 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!isOAuthLoginOpen) {
+    const sessionId = oauthLoginSession?.sessionId;
+    if (!isOAuthLoginOpen || !sessionId || oauthLoginInspection?.oauthExists) {
       return;
     }
 
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        void closeOAuthLoginDialog();
-      }
-    }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [isOAuthLoginOpen, oauthLoginSession, isStartingOAuthLogin, isInspectingOAuthLogin, isSavingOAuthLogin, isCancellingOAuthLogin]);
+    return startOAuthLoginAutoInspect({
+      inspect: () => requestOAuthLoginInspection(sessionId),
+      onResult: (inspection) => {
+        if (inspection.oauthExists) {
+          applyOAuthLoginInspection(inspection);
+        }
+      },
+      isComplete: (inspection) => inspection.oauthExists
+    });
+  }, [isOAuthLoginOpen, oauthLoginSession?.sessionId, Boolean(oauthLoginInspection?.oauthExists), loginCredentialLabel]);
 
   useEffect(() => {
     setStatusVisibility("visible");
@@ -355,6 +357,14 @@ export function App() {
     }
   }
 
+  async function checkForUpdates() {
+    try {
+      await getApi().checkForUpdates();
+    } catch (error) {
+      setSettingsStatus({ tone: "error", text: getErrorMessage(error) });
+    }
+  }
+
   async function saveUsageDisplayMode(mode: UsageDisplayMode) {
     if (profileActionInFlightRef.current || settingsActionInFlightRef.current) {
       setSettingsStatus({ tone: "idle", text: "账号操作完成后再修改用量显示。" });
@@ -475,24 +485,26 @@ export function App() {
     }
   }
 
-  async function registerCurrentAntigravity() {
-    if (isGeminiTool || !result.targetHash || currentProfile || profileActionInFlightRef.current) {
+  async function registerCurrentAccount() {
+    if (!result.targetHash || currentProfile || profileActionInFlightRef.current) {
       return;
     }
 
     profileActionInFlightRef.current = true;
-    setIsRegisteringCurrentAntigravity(true);
-    setStatus({ tone: "idle", text: "正在登记当前 Antigravity 账号..." });
+    setIsRegisteringCurrentProfile(true);
+    setStatus({ tone: "idle", text: `正在登记当前 ${toolLabels.shortName} 账号...` });
     try {
-      const registered = await getApi().registerCurrentAntigravity();
+      const registered = isGeminiTool
+        ? await getApi().registerCurrentGemini()
+        : await getApi().registerCurrentAntigravity();
       const nextSettings = await getApi().getSettings();
       setSettings(nextSettings);
-      await loadProfiles("antigravity-cli");
+      await loadProfiles(selectedTool);
       setStatus({ tone: "success", text: `已登记当前账号 ${registered.nickname || registered.profileName}。` });
     } catch (error) {
       setStatus({ tone: "error", text: getErrorMessage(error) });
     } finally {
-      setIsRegisteringCurrentAntigravity(false);
+      setIsRegisteringCurrentProfile(false);
       profileActionInFlightRef.current = false;
     }
   }
@@ -575,7 +587,7 @@ export function App() {
       setOAuthLoginInspection(undefined);
       setOAuthProfileNameDraft("");
       setOAuthNicknameDraft("");
-      setOAuthLoginStatus({ tone: "success", text: "登录窗口已打开。完成浏览器登录后，回到这里点击重新检测。" });
+      setOAuthLoginStatus({ tone: "success", text: "登录窗口已打开。完成浏览器登录后会自动检测账号。" });
     } catch (error) {
       setOAuthLoginStatus({ tone: "error", text: getErrorMessage(error) });
     } finally {
@@ -589,36 +601,59 @@ export function App() {
       return;
     }
 
+    if (oauthInspectionInFlightRef.current) {
+      setOAuthLoginStatus({ tone: "idle", text: `正在自动检测 ${loginCredentialLabel}...` });
+      return;
+    }
+
     setIsInspectingOAuthLogin(true);
     setOAuthLoginStatus({ tone: "idle", text: `正在检测 ${loginCredentialLabel}...` });
     try {
-      const inspection = await getApi().inspectOAuthLogin(oauthLoginSession.sessionId);
-      setOAuthLoginInspection(inspection);
+      const inspection = await requestOAuthLoginInspection(oauthLoginSession.sessionId);
+      if (!inspection) {
+        return;
+      }
       if (!inspection.oauthExists) {
         setOAuthLoginStatus({ tone: "idle", text: `还没有检测到 ${loginCredentialLabel}。请先在登录窗口完成登录。` });
         return;
       }
-
-      setOAuthProfileNameDraft(inspection.proposedProfileName ?? "");
-      setOAuthNicknameDraft(inspection.proposedNickname ?? "");
-      if (inspection.conflictProfileName) {
-        setOAuthLoginStatus({
-          tone: "error",
-          text: `账号已存在：${inspection.conflictProfileName}。请不要重复新增，或手动改成新的保存名称。`
-        });
-        return;
-      }
-      setOAuthLoginStatus({
-        tone: "success",
-        text: inspection.accountEmail
-          ? `已识别到账号 ${inspection.accountEmail}。`
-          : `已检测到 ${loginCredentialLabel}，但没有识别出邮箱。请手动填写保存名称。`
-      });
+      applyOAuthLoginInspection(inspection);
     } catch (error) {
       setOAuthLoginStatus({ tone: "error", text: getErrorMessage(error) });
     } finally {
       setIsInspectingOAuthLogin(false);
     }
+  }
+
+  async function requestOAuthLoginInspection(sessionId: string): Promise<OAuthLoginInspectResult | undefined> {
+    if (oauthInspectionInFlightRef.current) {
+      return undefined;
+    }
+    oauthInspectionInFlightRef.current = true;
+    try {
+      return await getApi().inspectOAuthLogin(sessionId);
+    } finally {
+      oauthInspectionInFlightRef.current = false;
+    }
+  }
+
+  function applyOAuthLoginInspection(inspection: OAuthLoginInspectResult) {
+    setOAuthLoginInspection(inspection);
+    setOAuthProfileNameDraft(inspection.proposedProfileName ?? "");
+    setOAuthNicknameDraft(inspection.proposedNickname ?? "");
+    if (inspection.conflictProfileName) {
+      setOAuthLoginStatus({
+        tone: "error",
+        text: `账号已存在：${inspection.conflictProfileName}。请不要重复新增，或手动改成新的保存名称。`
+      });
+      return;
+    }
+    setOAuthLoginStatus({
+      tone: "success",
+      text: inspection.accountEmail
+        ? `已识别到账号 ${inspection.accountEmail}。`
+        : `已检测到 ${loginCredentialLabel}，但没有识别出邮箱。请手动填写保存名称。`
+    });
   }
 
   async function saveOAuthLogin() {
@@ -852,8 +887,8 @@ export function App() {
           hasUnmatchedTarget={Boolean(result.targetHash && !currentProfile)}
           lastSwitch={visibleLastSwitch}
           localDiagnostics={localDiagnostics}
-          isRegisteringCurrent={isRegisteringCurrentAntigravity}
-          onRegisterCurrent={registerCurrentAntigravity}
+          isRegisteringCurrent={isRegisteringCurrentProfile}
+          onRegisterCurrent={registerCurrentAccount}
         />
 
         <StatusBar status={status} visibility={statusVisibility} />
@@ -932,6 +967,7 @@ export function App() {
             onProfilesRootChange={setProfilesRootDraft}
             onTrayBehaviorChange={saveTrayBehavior}
             onAutoUpdateEnabledChange={saveAutoUpdateEnabled}
+            onCheckForUpdates={checkForUpdates}
             onUsageDisplayModeChange={saveUsageDisplayMode}
             onUiThemeChange={saveUiTheme}
             onSelectProfilesRoot={selectProfilesRoot}

@@ -103,6 +103,36 @@ describe("auto update checks", () => {
     expect(manager.getStatus()).toEqual({ phase: "downloaded", latestVersion: "0.2.4" });
   });
 
+  it("runs a manual update check immediately and cancels the delayed check", async () => {
+    const { updater } = createFakeUpdater();
+    const timer = Symbol("timer");
+    let scheduledCheck: (() => void) | undefined;
+    const clearTimeoutFn = vi.fn();
+    const manager = createAutoUpdateManager({
+      isPackaged: true,
+      isPortable: false,
+      updater,
+      setTimeoutFn: (callback) => {
+        scheduledCheck = callback;
+        return timer;
+      },
+      clearTimeoutFn,
+      showMessageBox: async () => ({ response: 1 }),
+      prepareToQuitForUpdate: vi.fn()
+    });
+
+    await manager.setEnabled(true);
+    await expect(manager.checkNow()).resolves.toBe(true);
+
+    expect(clearTimeoutFn).toHaveBeenCalledWith(timer);
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
+    expect(manager.getStatus()).toEqual({ phase: "checking" });
+
+    scheduledCheck?.();
+    await Promise.resolve();
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
+  });
+
   it("waits for the download notice before showing the install prompt", async () => {
     const { updater, listeners } = createFakeUpdater();
     let closeDownloadNotice: (() => void) | undefined;

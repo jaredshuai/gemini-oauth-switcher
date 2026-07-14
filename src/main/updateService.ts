@@ -44,6 +44,7 @@ interface AutoUpdateManagerOptions {
 export interface AutoUpdateManager {
   setEnabled(enabled: boolean): Promise<boolean>;
   getStatus(): AppUpdateStatus;
+  checkNow(): Promise<boolean>;
 }
 
 export function shouldCheckForUpdates(options: ShouldCheckForUpdatesOptions): boolean {
@@ -60,6 +61,8 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
   private announcedUpdateVersion?: string;
   private downloadNoticePromise?: Promise<void>;
   private status: AppUpdateStatus = { phase: "idle" };
+  private checkPromise?: Promise<boolean>;
+  private scheduleGeneration = 0;
 
   constructor(private readonly options: AutoUpdateManagerOptions) {
     this.updater = options.updater;
@@ -106,7 +109,7 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
     updater.autoDownload = true;
     updater.autoInstallOnAppQuit = true;
     this.attachListeners(updater);
-    this.scheduleCheck(updater);
+    this.scheduleCheck();
     return true;
   }
 
@@ -114,16 +117,39 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
     return { ...this.status };
   }
 
+  async checkNow(): Promise<boolean> {
+    const updater = this.updater;
+    if (!this.enabled || !updater || this.checkPromise || this.status.phase === "downloading" || this.status.phase === "downloaded") {
+      return false;
+    }
+
+    this.clearScheduledCheck();
+    this.setStatus({ phase: "checking" });
+    const checkPromise = Promise.resolve()
+      .then(() => updater.checkForUpdates())
+      .then(() => true)
+      .catch((error: unknown) => {
+        if (this.enabled) {
+          this.setStatus({ phase: "error" });
+          this.logWarning("Auto update check failed.", error);
+        }
+        return false;
+      })
+      .finally(() => {
+        if (this.checkPromise === checkPromise) {
+          this.checkPromise = undefined;
+        }
+      });
+    this.checkPromise = checkPromise;
+    return checkPromise;
+  }
+
   private disable(): void {
     this.enabled = false;
     this.setStatus({ phase: "disabled" });
     this.announcedUpdateVersion = undefined;
     this.downloadNoticePromise = undefined;
-    if (this.timer !== undefined) {
-      const clearTimeoutFn = this.options.clearTimeoutFn ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>));
-      clearTimeoutFn(this.timer);
-      this.timer = undefined;
-    }
+    this.clearScheduledCheck();
     if (this.updater) {
       this.updater.autoDownload = false;
       this.updater.autoInstallOnAppQuit = false;
@@ -214,21 +240,29 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
     });
   }
 
-  private scheduleCheck(updater: AutoUpdaterLike): void {
+  private scheduleCheck(): void {
     const setTimeoutFn = this.options.setTimeoutFn ?? setTimeout;
+    const generation = ++this.scheduleGeneration;
     this.timer = setTimeoutFn(() => {
+      if (generation !== this.scheduleGeneration) {
+        return;
+      }
       this.timer = undefined;
       if (!this.enabled) {
         return;
       }
-      this.setStatus({ phase: "checking" });
-      void updater.checkForUpdates().catch((error: unknown) => {
-        if (this.enabled) {
-          this.setStatus({ phase: "error" });
-          this.logWarning("Auto update check failed.", error);
-        }
-      });
+      void this.checkNow();
     }, this.options.checkDelayMs ?? 5_000);
+  }
+
+  private clearScheduledCheck(): void {
+    this.scheduleGeneration += 1;
+    if (this.timer === undefined) {
+      return;
+    }
+    const clearTimeoutFn = this.options.clearTimeoutFn ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>));
+    clearTimeoutFn(this.timer);
+    this.timer = undefined;
   }
 
   private logWarning(message: string, error?: unknown): void {

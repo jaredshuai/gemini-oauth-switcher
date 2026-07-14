@@ -5,6 +5,7 @@ import { TOOL_LABELS } from "../constants";
 import type { StatusMessage } from "../types";
 import { buildProfileLoginPreview } from "../utils";
 import { PathLine, SettingsStatusBar } from "./StatusBar";
+import { useModalBehavior } from "./useModalBehavior";
 
 export function OAuthLoginDialog({
   selectedTool,
@@ -56,9 +57,12 @@ export function OAuthLoginDialog({
   const duplicateProfileName = hasExistingProfileName ? trimmedProfileName : hasOriginalConflict ? inspection?.conflictProfileName : undefined;
   const canSave = Boolean(session && inspection?.oauthExists && trimmedProfileName && !duplicateProfileName) && !isBusy;
   const savePathPreview = buildProfileLoginPreview(profilesRoot, trimmedProfileName, selectedTool);
+  const dialogRef = useModalBehavior({ onClose, closeDisabled: isBusy });
 
   return (
     <div
+      ref={dialogRef}
+      tabIndex={-1}
       className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/35 px-4 py-5"
       role="dialog"
       aria-modal="true"
@@ -85,7 +89,7 @@ export function OAuthLoginDialog({
                   会先创建临时登录目录，登录成功后再保存到账号列表。
                 </p>
               </div>
-              <button className="primary-button" onClick={onStart} disabled={isBusy || Boolean(session)}>
+              <button data-dialog-autofocus className="primary-button" onClick={onStart} disabled={isBusy || Boolean(session)}>
                 <RefreshCw className={isStarting ? "h-4 w-4 animate-spin" : "hidden"} />
                 {session ? "登录窗口已打开" : isStarting ? "打开中..." : "打开登录窗口"}
               </button>
@@ -155,7 +159,7 @@ export function OAuthLoginDialog({
           </button>
           <button className="tool-button" onClick={onInspect} disabled={!session || isBusy}>
             <RefreshCw className={isInspecting ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-            重新检测
+            立即检测
           </button>
           <button className="primary-button" onClick={onSave} disabled={!canSave}>
             <RefreshCw className={isSaving ? "h-4 w-4 animate-spin" : "hidden"} />

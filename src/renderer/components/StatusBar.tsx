@@ -19,6 +19,9 @@ export function StatusBar({ status, visibility }: { status: StatusMessage; visib
 
   return (
     <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
       className={`overflow-hidden rounded-md border px-4 text-sm transition-[opacity,max-height,padding,border-color] duration-700 ease-in-out ${className} ${visibilityClass}`}
     >
       {status.text}
@@ -29,12 +32,12 @@ export function StatusBar({ status, visibility }: { status: StatusMessage; visib
 export function SettingsStatusBar({ status }: { status: StatusMessage }) {
   const className = statusToneClass(status.tone, "parchment-status text-neutral-700");
 
-  return <div className={`mt-3 rounded-md border px-3 py-2 text-sm ${className}`}>{status.text}</div>;
+  return <div role="status" aria-live="polite" aria-atomic="true" className={`mt-3 rounded-md border px-3 py-2 text-sm ${className}`}>{status.text}</div>;
 }
 
 export function PathLine({ label, value }: { label: string; value: string }) {
   return (
-    <div className="mt-3 flex flex-col gap-1 text-xs text-neutral-500">
+    <div className="mt-3 flex flex-col gap-1 text-xs text-neutral-600">
       <span className="font-semibold uppercase">{label}</span>
       <span className="break-all font-mono text-neutral-700">{value}</span>
     </div>

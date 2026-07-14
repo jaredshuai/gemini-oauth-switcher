@@ -1,4 +1,4 @@
-import type { AppRuntimeInfo, AppUpdateStatus, ProfileInfo, ProfileUsageResult, TargetTool, UsageDisplayMode } from "../shared/types";
+import type { AppRuntimeInfo, AppUpdateStatus, LocalDiagnosticsResult, ProfileInfo, ProfileUsageResult, TargetTool, UsageDisplayMode } from "../shared/types";
 
 interface ElapsedSuffixes {
   now: string;
@@ -87,6 +87,19 @@ export function describeAppUpdate(
     default:
       return { text: "自动检查更新已开启", tone: "muted" };
   }
+}
+
+export function shouldCompactAccountStatus(
+  selectedTool: TargetTool,
+  hasCurrentProfile: boolean,
+  diagnostics?: LocalDiagnosticsResult
+): boolean {
+  return Boolean(
+    hasCurrentProfile &&
+    diagnostics &&
+    diagnostics.envRisks.length === 0 &&
+    (selectedTool !== "gemini" || diagnostics.geminiCommand.available)
+  );
 }
 
 export function clampPercentage(value: number): number {

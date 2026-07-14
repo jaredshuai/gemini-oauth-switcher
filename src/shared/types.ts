@@ -179,12 +179,14 @@ export interface OAuthLoginCancelRequest {
 export interface GeminiSwitcherApi {
   getRuntimeInfo(): Promise<AppRuntimeInfo>;
   getUpdateStatus(): Promise<AppUpdateStatus>;
+  checkForUpdates(): Promise<boolean>;
   onUpdateStatusChanged(listener: (status: AppUpdateStatus) => void): () => void;
   getSettings(): Promise<AppSettings>;
   saveSettings(settings: Partial<AppSettings>): Promise<AppSettings>;
   listProfiles(targetTool?: TargetTool): Promise<ProfileListResult>;
   switchProfile(profileName: string, targetTool?: TargetTool): Promise<SwitchProfileResult>;
   deleteProfile(profileIdentifier: string, targetTool?: TargetTool): Promise<DeleteProfileResult>;
+  registerCurrentGemini(): Promise<OAuthLoginSaveResult>;
   registerCurrentAntigravity(): Promise<OAuthLoginSaveResult>;
   startOAuthLogin(targetTool?: TargetTool): Promise<OAuthLoginSession>;
   inspectOAuthLogin(sessionId: string): Promise<OAuthLoginInspectResult>;

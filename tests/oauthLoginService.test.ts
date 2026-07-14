@@ -11,6 +11,7 @@ import {
   cleanupStaleOAuthLoginSessions,
   createOAuthLoginSession,
   inspectOAuthLoginSession,
+  resolveOAuthIdentityFromFile,
   resolveOAuthIdentityFromText,
   saveOAuthLoginSession
 } from "../src/main/oauthLoginService";
@@ -68,6 +69,16 @@ afterEach(async () => {
 });
 
 describe("oauthLoginService", () => {
+  it("resolves an embedded account email from an OAuth file", async () => {
+    const root = await makeTempRoot();
+    const oauthPath = path.join(root, "oauth_creds.json");
+    await writeFile(oauthPath, JSON.stringify({ account: { email: "Current.User@Example.com" } }), "utf8");
+
+    await expect(resolveOAuthIdentityFromFile(oauthPath)).resolves.toEqual({
+      accountEmail: "current.user@example.com"
+    });
+  });
+
   it("resolves an account email from Google UserInfo when the credential has no embedded identity", async () => {
     const requestedTokens: string[] = [];
     const identity = await resolveOAuthIdentityFromText(

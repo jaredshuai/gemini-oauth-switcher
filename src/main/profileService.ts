@@ -9,6 +9,7 @@ const GEMINI_DIR = ".gemini";
 const OAUTH_FILE = "oauth_creds.json";
 const DEFAULT_PROFILE_FILE_RELATIVE_PATH = path.join(GEMINI_DIR, OAUTH_FILE);
 const PENDING_LOGIN_PREFIX = ".pending-login-";
+const PENDING_REGISTER_PREFIX = ".pending-register-";
 const targetOperationQueues = new Map<string, Promise<unknown>>();
 
 export interface ListProfilesOptions {
@@ -104,7 +105,7 @@ export async function listProfiles(options: ListProfilesOptions): Promise<Profil
   const entries = await readdir(profilesRoot, { withFileTypes: true });
   const profiles = await Promise.all(
     entries
-      .filter((entry) => entry.isDirectory() && !entry.name.startsWith(PENDING_LOGIN_PREFIX))
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith(PENDING_LOGIN_PREFIX) && !entry.name.startsWith(PENDING_REGISTER_PREFIX))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
       .map(async (entry): Promise<ProfileInfo> => {
         const profilePath = path.join(profilesRoot, entry.name);
@@ -181,6 +182,64 @@ export async function listProfiles(options: ListProfilesOptions): Promise<Profil
 export async function switchProfile(options: SwitchProfileOptions): Promise<SwitchProfileResult> {
   const credentialMode = getCredentialMode(options);
   return runTargetOperation(credentialMode?.target ?? path.resolve(options.targetOAuthPath), () => switchProfileUnlocked(options));
+}
+
+export async function registerCurrentProfile(options: SwitchProfileOptions): Promise<SwitchProfileResult> {
+  const profilesRoot = path.resolve(options.profilesRoot);
+  const profileName = validateProfileName(options.profileName);
+  const profilePath = path.resolve(profilesRoot, profileName);
+  return runTargetOperation(profilePath, () => registerCurrentProfileUnlocked({ ...options, profilesRoot, profileName }));
+}
+
+async function registerCurrentProfileUnlocked(options: SwitchProfileOptions): Promise<SwitchProfileResult> {
+  const profilesRoot = path.resolve(options.profilesRoot);
+  const profileName = validateProfileName(options.profileName);
+  const sourcePath = path.resolve(options.targetOAuthPath);
+  const profilePath = path.resolve(profilesRoot, profileName);
+  const profileFileRelativePath = normalizeProfileFileRelativePath(options.profileFileRelativePath);
+  const targetPath = path.join(profilePath, profileFileRelativePath);
+  const profileFileLabel = options.profileFileLabel ?? "OAuth file";
+
+  if (!isInsideDirectory(profilePath, profilesRoot)) {
+    throw new Error("Invalid profile name: profile must be a direct child of profilesRoot");
+  }
+  if (!(await fileExists(sourcePath))) {
+    throw new Error(`Current ${profileFileLabel} does not exist`);
+  }
+
+  await mkdir(profilesRoot, { recursive: true });
+  const existingProfile = await lstat(profilePath).catch((error: unknown) => {
+    if (isNotFoundError(error)) {
+      return undefined;
+    }
+    throw error;
+  });
+  if (existingProfile) {
+    throw new Error(`Profile already exists: ${profileName}`);
+  }
+
+  const sourceHash = await hashFile(sourcePath);
+  const pendingProfilePath = path.join(profilesRoot, `${PENDING_REGISTER_PREFIX}${randomUUID()}`);
+  const pendingTargetPath = path.join(pendingProfilePath, profileFileRelativePath);
+  try {
+    await mkdir(path.dirname(pendingTargetPath), { recursive: true });
+    await copyFile(sourcePath, pendingTargetPath);
+    const targetHash = await hashFile(pendingTargetPath);
+    if (targetHash !== sourceHash) {
+      throw new Error(`Registered ${profileFileLabel} hash does not match the current target`);
+    }
+    await rename(pendingProfilePath, profilePath);
+    return {
+      profileName,
+      sourcePath,
+      targetPath,
+      sourceHash,
+      targetHash
+    };
+  } catch (error) {
+    await rm(pendingProfilePath, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 async function switchProfileUnlocked(options: SwitchProfileOptions): Promise<SwitchProfileResult> {

@@ -577,6 +577,30 @@ button:focus-visible {
   font-weight: 600;
 }
 
+.settings-version-controls {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.settings-version-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 0;
+  background: transparent;
+  color: rgb(82 82 82);
+  padding: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.settings-version-check:not(:disabled):hover {
+  color: rgb(23 23 23);
+}
+
 .settings-version-update-muted {
   color: rgb(115 115 115);
 }
@@ -804,6 +828,14 @@ button:focus-visible {
   color: oklch(38% 0.075 132);
 }
 
+[data-theme="rpg-parchment"] .settings-version-check {
+  color: oklch(40% 0.04 54);
+}
+
+[data-theme="rpg-parchment"] .settings-version-check:not(:disabled):hover {
+  color: oklch(29% 0.06 45);
+}
+
 [data-theme="rpg-parchment"] .settings-dialog-sheet .parchment-status {
   border-color: oklch(55% 0.05 56 / 0.4);
   background: oklch(91% 0.04 78 / 0.5);
@@ -841,6 +873,12 @@ button:focus-visible {
 
   .settings-version-update {
     text-align: left;
+  }
+
+  .settings-version-controls {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.35rem;
   }
 }
 

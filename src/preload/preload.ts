@@ -4,6 +4,7 @@ import type { AppSettings, AppUpdateStatus, GeminiSwitcherApi, OAuthLoginCancelR
 const api: GeminiSwitcherApi = {
   getRuntimeInfo: () => ipcRenderer.invoke("app:runtimeInfo"),
   getUpdateStatus: () => ipcRenderer.invoke("app:updateStatus"),
+  checkForUpdates: () => ipcRenderer.invoke("app:updateCheck"),
   onUpdateStatusChanged: (listener: (status: AppUpdateStatus) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, status: AppUpdateStatus) => listener(status);
     ipcRenderer.on("app:updateStatusChanged", handler);
@@ -14,6 +15,7 @@ const api: GeminiSwitcherApi = {
   listProfiles: (targetTool?: TargetTool) => ipcRenderer.invoke("profiles:list", targetTool),
   switchProfile: (profileName: string, targetTool?: TargetTool) => ipcRenderer.invoke("profiles:switch", profileName, targetTool),
   deleteProfile: (profileIdentifier: string, targetTool?: TargetTool) => ipcRenderer.invoke("profiles:delete", profileIdentifier, targetTool),
+  registerCurrentGemini: () => ipcRenderer.invoke("profiles:gemini:registerCurrent"),
   registerCurrentAntigravity: () => ipcRenderer.invoke("profiles:antigravity:registerCurrent"),
   startOAuthLogin: (targetTool?: TargetTool) => ipcRenderer.invoke("oauthLogin:start", targetTool),
   inspectOAuthLogin: (sessionId: string) => ipcRenderer.invoke("oauthLogin:inspect", sessionId),

@@ -49,6 +49,29 @@ describe("renderer utils", () => {
     }, true)).toEqual({ text: "便携版需手动更新", tone: "muted" });
   });
 
+  it("compacts account diagnostics only when the current account and local environment are healthy", () => {
+    expect(rendererUtils.shouldCompactAccountStatus("gemini", true, {
+      envRisks: [],
+      geminiCommand: { available: true },
+      checkedAt: 100
+    })).toBe(true);
+    expect(rendererUtils.shouldCompactAccountStatus("antigravity-cli", true, {
+      envRisks: [],
+      geminiCommand: { available: false },
+      checkedAt: 100
+    })).toBe(true);
+    expect(rendererUtils.shouldCompactAccountStatus("gemini", true, {
+      envRisks: ["检测到 GOOGLE_API_KEY"],
+      geminiCommand: { available: true },
+      checkedAt: 100
+    })).toBe(false);
+    expect(rendererUtils.shouldCompactAccountStatus("gemini", false, {
+      envRisks: [],
+      geminiCommand: { available: true },
+      checkedAt: 100
+    })).toBe(false);
+  });
+
   it("uses a resolved account email when no custom nickname exists", () => {
     const profile: ProfileInfo = {
       id: "agy-current",

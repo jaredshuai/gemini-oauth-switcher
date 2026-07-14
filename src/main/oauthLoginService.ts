@@ -547,6 +547,17 @@ export async function resolveOAuthIdentityFromText(
   }
 }
 
+export async function resolveOAuthIdentityFromFile(
+  oauthPath: string,
+  options: ResolveOAuthIdentityOptions = {}
+): Promise<ParsedOAuthIdentity> {
+  try {
+    return await resolveOAuthIdentityFromText(await readFile(oauthPath, "utf8"), options);
+  } catch {
+    return {};
+  }
+}
+
 async function resolveOAuthIdentityFromAccessToken(
   accessToken: string,
   fetchUserInfo?: OAuthUserInfoFetcher

@@ -1,7 +1,7 @@
 import { CircleAlert, KeyRound, ListChecks, ShieldCheck, SquareTerminal, TriangleAlert, UserPlus } from "lucide-react";
 import type { LastSwitchResult, LocalDiagnosticsResult, ProfileInfo, TargetTool } from "../../shared/types";
 import { TOOL_LABELS } from "../constants";
-import { formatSwitchRelativeTime } from "../utils";
+import { formatSwitchRelativeTime, shouldCompactAccountStatus } from "../utils";
 
 export function CurrentAccountPanel({
   selectedTool,
@@ -31,15 +31,16 @@ export function CurrentAccountPanel({
       : `${toolLabels.targetLabel} 尚未设置`;
   const nextStepText = currentProfile
     ? `新开 PowerShell，运行 ${toolLabels.command}`
-    : selectedTool === "antigravity-cli" && hasUnmatchedTarget
-      ? "登记当前账号，或新增其他登录"
+    : hasUnmatchedTarget
+      ? selectedTool === "antigravity-cli" ? "登记当前账号，或新增其他登录" : "登记当前账号，或切换到列表账号"
       : "从账号列表中选择并切换";
+  const compactStatus = shouldCompactAccountStatus(selectedTool, Boolean(currentProfile), localDiagnostics);
 
   return (
     <section className="py-3.5">
       <aside className="credential-console overflow-hidden rounded-md bg-neutral-950 text-sm text-neutral-100">
-        <div className="grid min-h-[212px] lg:grid-cols-[minmax(340px,0.82fr)_minmax(520px,1.18fr)]">
-          <div className="relative flex min-w-0 flex-col justify-between px-7 py-5 lg:border-r lg:border-neutral-800/80">
+        <div className={`grid lg:grid-cols-[minmax(340px,0.82fr)_minmax(520px,1.18fr)] ${compactStatus ? "min-h-[172px]" : "min-h-[212px]"}`}>
+          <div className={`relative flex min-w-0 flex-col justify-between px-7 lg:border-r lg:border-neutral-800/80 ${compactStatus ? "py-4" : "py-5"}`}>
             <div>
               <div className={`flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-[0.18em] ${currentProfile ? "text-emerald-400" : "text-amber-300"}`}>
                 {currentProfile ? <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_0_4px_rgba(52,211,153,0.10)]" /> : <TriangleAlert className="h-4 w-4" />}
@@ -57,25 +58,25 @@ export function CurrentAccountPanel({
                     {accountName || (hasUnmatchedTarget ? "未登记账号" : "未选择账号")}
                   </div>
                   {currentProfile && displayName !== currentProfile.name ? (
-                    <div className="mt-1.5 truncate font-mono text-[11px] text-neutral-500" title={currentProfile.name}>
+                    <div className="mt-1.5 truncate font-mono text-[11px] text-neutral-400" title={currentProfile.name}>
                       {selectedTool === "gemini" ? "目录" : "账号"} / {currentProfile.name}
                     </div>
                   ) : null}
                 </div>
               </div>
 
-              <div className="mt-5 flex items-start gap-2 text-sm font-semibold text-neutral-200">
+              <div className={`${compactStatus ? "mt-3" : "mt-5"} flex items-start gap-2 text-sm font-semibold text-neutral-200`}>
                 {currentProfile ? <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" /> : <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />}
                 <span>{validationText}</span>
               </div>
             </div>
 
-            <div className="mt-5 flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2 font-mono text-xs text-neutral-500">
+            <div className={`${compactStatus ? "mt-3" : "mt-5"} flex flex-wrap items-center gap-3`}>
+              <div className="flex items-center gap-2 font-mono text-xs text-neutral-400">
                 <SquareTerminal className="h-3.5 w-3.5" />
                 <span>{nextStepText}</span>
               </div>
-              {selectedTool === "antigravity-cli" && hasUnmatchedTarget ? (
+              {hasUnmatchedTarget ? (
                 <button
                   className="console-action-button"
                   onClick={onRegisterCurrent}
@@ -94,6 +95,7 @@ export function CurrentAccountPanel({
             displayName={displayName}
             lastSwitch={lastSwitch}
             localDiagnostics={localDiagnostics}
+            compact={compactStatus}
           />
         </div>
       </aside>
@@ -106,13 +108,15 @@ function AccountStatusPanel({
   currentProfile,
   displayName,
   lastSwitch,
-  localDiagnostics
+  localDiagnostics,
+  compact
 }: {
   selectedTool: TargetTool;
   currentProfile?: ProfileInfo;
   displayName?: string;
   lastSwitch?: LastSwitchResult;
   localDiagnostics?: LocalDiagnosticsResult;
+  compact: boolean;
 }) {
   const lastSwitchName = lastSwitch
     ? lastSwitch.profileName === currentProfile?.name
@@ -121,8 +125,30 @@ function AccountStatusPanel({
     : undefined;
   const envRisks = localDiagnostics?.envRisks ?? [];
 
+  if (compact) {
+    return (
+      <div className="flex min-w-0 flex-col justify-center border-t border-neutral-800/80 px-7 py-4 lg:border-t-0">
+        <div className="flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-300">
+          <ShieldCheck className="h-3.5 w-3.5" />
+          状态正常
+        </div>
+        <div className="mt-3 grid items-center gap-4 border-t border-neutral-800/80 pt-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <InfoBlock
+            label="最近切换"
+            value={lastSwitch && lastSwitchName ? `${formatSwitchRelativeTime(lastSwitch.switchedAt)} / ${lastSwitchName}` : "暂无记录"}
+            tone={lastSwitch ? "normal" : "muted"}
+          />
+          <div className="flex flex-wrap gap-2">
+            <RiskChip tone="success" label="环境正常" />
+            {selectedTool === "gemini" ? <RiskChip tone="success" label="Gemini CLI 可用" /> : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex min-w-0 flex-col px-7 py-5">
+    <div className="flex min-w-0 flex-col border-t border-neutral-800/80 px-7 py-5 lg:border-t-0">
       <div className="flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-400">
         <ListChecks className="h-3.5 w-3.5" />
         状态检查
@@ -142,7 +168,7 @@ function AccountStatusPanel({
       </div>
 
       <div className="mt-4">
-        <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">本机环境</div>
+        <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">本机环境</div>
         <div className="mt-2 flex flex-wrap gap-2">
           {localDiagnostics ? (
             <>
@@ -161,10 +187,10 @@ function AccountStatusPanel({
 }
 
 function InfoBlock({ label, value, tone }: { label: string; value: string; tone: "success" | "normal" | "muted" }) {
-  const valueClass = tone === "success" ? "text-emerald-300" : tone === "normal" ? "text-neutral-300" : "text-neutral-500";
+  const valueClass = tone === "success" ? "text-emerald-300" : tone === "normal" ? "text-neutral-300" : "text-neutral-400";
   return (
     <div className="min-w-0">
-      <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">{label}</div>
+      <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">{label}</div>
       <div className={`mt-1 truncate text-xs font-semibold ${valueClass}`} title={value}>{value}</div>
     </div>
   );
@@ -176,7 +202,7 @@ function RiskChip({ tone, label }: { tone: "success" | "warning" | "muted"; labe
       ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
       : tone === "warning"
         ? "border-amber-400/30 bg-amber-400/10 text-amber-200"
-        : "border-neutral-800 bg-white/[0.03] text-neutral-500";
+        : "border-neutral-800 bg-white/[0.03] text-neutral-400";
 
   return <span className={`inline-flex items-center rounded border px-2 py-1 font-mono text-[10px] font-semibold ${className}`}>{label}</span>;
 }

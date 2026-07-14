@@ -1,7 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { persistWindowBoundsBeforeClose, shouldHideWindowOnClose, type ClosableWindow } from "../src/main/windowLifecycle";
+import { ensureWindowBoundsVisible, persistWindowBoundsBeforeClose, shouldHideWindowOnClose, type ClosableWindow } from "../src/main/windowLifecycle";
 
 describe("window close behavior", () => {
+  it("keeps saved bounds when the title bar remains reachable", () => {
+    expect(ensureWindowBoundsVisible(
+      { x: -900, y: 80, width: 900, height: 700 },
+      [
+        { x: -1280, y: 0, width: 1280, height: 1024 },
+        { x: 0, y: 0, width: 1920, height: 1080 }
+      ]
+    )).toEqual({ x: -900, y: 80, width: 900, height: 700 });
+  });
+
+  it("drops stale coordinates when the saved title bar is off every display", () => {
+    expect(ensureWindowBoundsVisible(
+      { x: 2600, y: -800, width: 900, height: 700 },
+      [{ x: 0, y: 0, width: 1920, height: 1080 }]
+    )).toEqual({ width: 900, height: 700 });
+  });
+
   it("does not hide the window when tray mode is enabled but no tray exists", () => {
     expect(
       shouldHideWindowOnClose({

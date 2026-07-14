@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type {
   AntigravityProfileRecord,
@@ -23,16 +24,20 @@ const saveQueues = new Map<string, Promise<AppSettings>>();
 
 export async function readSettings(settingsPath: string): Promise<AppSettings> {
   try {
-    const raw = await readFile(settingsPath, "utf8");
-    return sanitizeSettings(JSON.parse(raw));
+    return await readSettingsFile(settingsPath);
   } catch (error) {
-    if (isNotFoundError(error)) {
+    if (!isRecoverableReadError(error)) {
+      throw error;
+    }
+
+    try {
+      return await readSettingsFile(`${settingsPath}.bak`);
+    } catch (backupError) {
+      if (!isRecoverableReadError(backupError)) {
+        throw backupError;
+      }
       return { ...DEFAULT_SETTINGS };
     }
-    if (error instanceof SyntaxError) {
-      return { ...DEFAULT_SETTINGS };
-    }
-    throw error;
   }
 }
 
@@ -53,8 +58,24 @@ async function saveSettingsUnlocked(settingsPath: string, patch: Partial<AppSett
   const current = await readSettings(settingsPath);
   const next = sanitizeSettings({ ...current, ...patch });
   await mkdir(path.dirname(settingsPath), { recursive: true });
-  await writeFile(settingsPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  await writeJsonAtomically(`${settingsPath}.bak`, current);
+  await writeJsonAtomically(settingsPath, next);
   return next;
+}
+
+async function readSettingsFile(filePath: string): Promise<AppSettings> {
+  const raw = await readFile(filePath, "utf8");
+  return sanitizeSettings(JSON.parse(raw));
+}
+
+async function writeJsonAtomically(filePath: string, settings: AppSettings): Promise<void> {
+  const tempPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(tempPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+    await rename(tempPath, filePath);
+  } finally {
+    await rm(tempPath, { force: true }).catch(() => undefined);
+  }
 }
 
 function sanitizeSettings(value: unknown): AppSettings {
@@ -229,4 +250,8 @@ function isFiniteNumber(value: unknown): value is number {
 
 function isNotFoundError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+}
+
+function isRecoverableReadError(error: unknown): boolean {
+  return isNotFoundError(error) || error instanceof SyntaxError;
 }

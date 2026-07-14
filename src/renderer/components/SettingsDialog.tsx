@@ -4,6 +4,7 @@ import { TOOL_LABELS } from "../constants";
 import type { StatusMessage } from "../types";
 import { describeAppUpdate, formatAppVersion } from "../utils";
 import { PathLine, SettingsStatusBar } from "./StatusBar";
+import { useModalBehavior } from "./useModalBehavior";
 
 export function SettingsDialog({
   profilesRootDraft,
@@ -27,6 +28,7 @@ export function SettingsDialog({
   onProfilesRootChange,
   onTrayBehaviorChange,
   onAutoUpdateEnabledChange,
+  onCheckForUpdates,
   onUsageDisplayModeChange,
   onUiThemeChange,
   onSelectProfilesRoot,
@@ -55,6 +57,7 @@ export function SettingsDialog({
   onProfilesRootChange: (value: string) => void;
   onTrayBehaviorChange: (value: TrayBehavior) => void | Promise<void>;
   onAutoUpdateEnabledChange: (enabled: boolean) => void | Promise<void>;
+  onCheckForUpdates: () => void | Promise<void>;
   onUsageDisplayModeChange: (mode: UsageDisplayMode) => void | Promise<void>;
   onUiThemeChange: (theme: UiTheme) => void | Promise<void>;
   onSelectProfilesRoot: () => void;
@@ -64,9 +67,12 @@ export function SettingsDialog({
 }) {
   const toolLabels = TOOL_LABELS[selectedTool];
   const updateDisplay = describeAppUpdate(updateStatus, runtimeInfo, autoUpdateEnabled);
+  const canCheckForUpdates = runtimeInfo.isPackaged && !runtimeInfo.isPortable && autoUpdateEnabled &&
+    updateStatus.phase !== "checking" && updateStatus.phase !== "downloading" && updateStatus.phase !== "downloaded";
+  const dialogRef = useModalBehavior({ onClose, closeDisabled: isSaving });
 
   return (
-    <div className="settings-dialog-backdrop fixed inset-0 z-50 flex items-start justify-center bg-neutral-950/35 px-4 py-10" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
+    <div ref={dialogRef} tabIndex={-1} className="settings-dialog-backdrop fixed inset-0 z-50 flex items-start justify-center bg-neutral-950/35 px-4 py-10" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
       <section className="parchment-dialog settings-dialog-sheet max-h-[calc(100vh-2.5rem)] w-full max-w-2xl overflow-y-auto overscroll-contain rounded-md p-5">
         <div className="settings-dialog-header flex items-center justify-between gap-3 border-b border-neutral-300 pb-4">
           <h2 id="settings-dialog-title" className="settings-dialog-title text-lg font-semibold text-neutral-950">设置</h2>
@@ -84,6 +90,7 @@ export function SettingsDialog({
               <div className="mt-2 flex flex-col gap-2 sm:flex-row">
                 <input
                   id="profiles-root"
+                  data-dialog-autofocus
                   className="settings-directory-input min-w-0 flex-1 rounded-md border border-neutral-300 bg-white px-3 py-2 font-mono text-sm outline-none transition focus:border-neutral-800 focus:ring-2 focus:ring-neutral-800/10"
                   placeholder="默认 C:\\Users\\<current-user>\\.gemini-homes"
                   value={profilesRootDraft}
@@ -91,9 +98,6 @@ export function SettingsDialog({
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !isSaving) {
                       onSave();
-                    }
-                    if (event.key === "Escape") {
-                      onClose();
                     }
                   }}
                 />
@@ -113,7 +117,7 @@ export function SettingsDialog({
             <div className="settings-row mt-5">
               <div className="settings-row-copy">
                 <div className="settings-row-title text-sm font-semibold text-neutral-800">界面皮肤</div>
-                <p className="settings-row-description mt-1 text-xs text-neutral-500">只改变外观，不影响账号、凭据和用量数据。</p>
+                <p className="settings-row-description mt-1 text-xs text-neutral-600">只改变外观，不影响账号、凭据和用量数据。</p>
               </div>
               <div className="settings-segment mt-2 inline-flex overflow-hidden rounded-md border border-neutral-300 bg-white/70 p-1">
                 <button
@@ -194,7 +198,7 @@ export function SettingsDialog({
             <div className="settings-row mt-5">
               <div className="settings-row-copy">
                 <div className="settings-row-title text-sm font-semibold text-neutral-800">用量百分比显示</div>
-                <p className="settings-row-description mt-1 text-xs text-neutral-500">Gemini 与 Antigravity 共用；切换后立即作用于已查询的用量。</p>
+                <p className="settings-row-description mt-1 text-xs text-neutral-600">Gemini 与 Antigravity 共用；切换后立即作用于已查询的用量。</p>
               </div>
               <div className="settings-segment mt-2 inline-flex overflow-hidden rounded-md border border-neutral-300 bg-white/70 p-1">
                 <button
@@ -244,8 +248,21 @@ export function SettingsDialog({
                 <span className="settings-version-label">当前版本</span>
                 <span className="settings-version-number">{formatAppVersion(runtimeInfo.version)}</span>
               </div>
-              <div className={`settings-version-update settings-version-update-${updateDisplay.tone}`}>
-                {updateDisplay.text}
+              <div className="settings-version-controls">
+                {runtimeInfo.isPackaged && !runtimeInfo.isPortable && autoUpdateEnabled ? (
+                  <button
+                    className="settings-version-check"
+                    onClick={() => void onCheckForUpdates()}
+                    disabled={!canCheckForUpdates}
+                    title="立即检查更新"
+                  >
+                    <RefreshCw className={updateStatus.phase === "checking" ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
+                    检查更新
+                  </button>
+                ) : null}
+                <div className={`settings-version-update settings-version-update-${updateDisplay.tone}`}>
+                  {updateDisplay.text}
+                </div>
               </div>
             </div>
           </div>

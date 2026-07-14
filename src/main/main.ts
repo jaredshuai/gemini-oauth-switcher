@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { existsSync } from "node:fs";
-import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, type OpenDialogOptions } from "electron";
+import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, screen, shell, type OpenDialogOptions } from "electron";
 import type { AppSettings, AppUpdateStatus, OAuthLoginCancelRequest, OAuthLoginInspectResult, OAuthLoginSaveRequest, OAuthLoginSession, RevealTarget, TargetTool, TrayBehavior } from "../shared/types";
 import { getAntigravityLoginRoot, getDefaultProfilesRoot, getDefaultTargetAntigravityCliDir, getDefaultTargetGeminiDir, getDefaultTargetOAuthPath, getSettingsPath } from "./paths";
 import {
@@ -9,11 +9,12 @@ import {
   cleanupStaleOAuthLoginSessions,
   createOAuthLoginSession,
   inspectOAuthLoginSession,
+  resolveOAuthIdentityFromFile,
   resolveOAuthIdentityFromText,
   sanitizeOAuthProfileName,
   saveOAuthLoginSession
 } from "./oauthLoginService";
-import { deleteProfile, getProfileOAuthPath, listProfiles, switchProfile, validateProfileName } from "./profileService";
+import { deleteProfile, getProfileOAuthPath, hashFile, listProfiles, registerCurrentProfile, switchProfile, validateProfileName } from "./profileService";
 import { getProfileTargetConfig } from "./profileTargets";
 import {
   ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET,
@@ -33,7 +34,7 @@ import { collectLocalDiagnostics } from "./systemDiagnostics";
 import { createAutoUpdateManager, type AutoUpdateManager } from "./updateService";
 import { queryGeminiUsageFromOAuthFile } from "./usageService";
 import { queryAntigravityUsage, refreshAntigravityAccessToken } from "./antigravityUsageService";
-import { persistWindowBoundsBeforeClose, shouldHideWindowOnClose } from "./windowLifecycle";
+import { ensureWindowBoundsVisible, persistWindowBoundsBeforeClose, shouldHideWindowOnClose } from "./windowLifecycle";
 
 let mainWindow: BrowserWindow | undefined;
 let tray: Tray | undefined;
@@ -300,7 +301,8 @@ function syncAutoUpdateSetting(settings: AppSettings): void {
 
 async function createWindow(): Promise<void> {
   const settings = await readSettings(settingsPath());
-  const bounds = settings.windowBounds ?? { width: 1040, height: 760 };
+  const savedBounds = settings.windowBounds ?? { width: 1040, height: 760 };
+  const bounds = ensureWindowBoundsVisible(savedBounds, screen.getAllDisplays().map((display) => display.workArea));
   const windowChromeTheme = getWindowChromeTheme(settings.uiTheme);
   trayBehavior = settings.trayBehavior ?? "exit";
 
@@ -371,6 +373,7 @@ function registerIpcHandlers(): void {
   }));
 
   ipcMain.handle("app:updateStatus", () => currentUpdateStatus());
+  ipcMain.handle("app:updateCheck", () => autoUpdateManager?.checkNow() ?? false);
 
   ipcMain.handle("settings:get", async () => readSettings(settingsPath()));
 
@@ -534,6 +537,42 @@ function registerIpcHandlers(): void {
       nickname: accountEmail,
       profilePath: "",
       oauthPath: "",
+      accountEmail,
+      sha256: registered.targetHash
+    };
+  });
+
+  ipcMain.handle("profiles:gemini:registerCurrent", async () => {
+    const settings = await readSettings(settingsPath());
+    const profilesRoot = getConfiguredProfilesRoot(settings);
+    const targetOAuthPath = getDefaultTargetOAuthPath();
+    const accountEmail = (await resolveOAuthIdentityFromFile(targetOAuthPath)).accountEmail;
+    const targetHash = await hashFile(targetOAuthPath);
+    const profileName = accountEmail
+      ? sanitizeOAuthProfileName(accountEmail)
+      : `gemini-account-${targetHash.slice(0, 8)}`;
+    const registered = await registerCurrentProfile({
+      profilesRoot,
+      profileName,
+      targetOAuthPath
+    });
+    const nextNicknames = { ...(settings.profileNicknames ?? {}) };
+    if (accountEmail && accountEmail !== profileName) {
+      nextNicknames[profileName] = accountEmail;
+    }
+    await saveSettings(settingsPath(), {
+      selectedTool: "gemini",
+      lastSelectedProfile: profileName,
+      profileNicknames: nextNicknames
+    });
+
+    return {
+      sessionId: "current-gemini",
+      targetTool: "gemini",
+      profileName,
+      nickname: accountEmail,
+      profilePath: path.join(profilesRoot, profileName),
+      oauthPath: registered.targetPath,
       accountEmail,
       sha256: registered.targetHash
     };
