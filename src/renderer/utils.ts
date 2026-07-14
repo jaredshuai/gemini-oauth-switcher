@@ -1,4 +1,4 @@
-import type { AppRuntimeInfo, AppUpdateStatus, LocalDiagnosticsResult, ProfileInfo, ProfileUsageResult, TargetTool, UsageDisplayMode } from "../shared/types";
+import type { AppRuntimeInfo, AppUpdateStatus, LastSwitchResult, LocalDiagnosticsResult, ProfileInfo, ProfileUsageResult, TargetTool, UsageDisplayMode } from "../shared/types";
 
 interface ElapsedSuffixes {
   now: string;
@@ -100,6 +100,19 @@ export function shouldCompactAccountStatus(
     diagnostics.envRisks.length === 0 &&
     (selectedTool !== "gemini" || diagnostics.geminiCommand.available)
   );
+}
+
+export function getVisibleLastSwitch(
+  lastSwitch: LastSwitchResult | undefined,
+  selectedTool: TargetTool,
+  profiles: ProfileInfo[]
+): LastSwitchResult | undefined {
+  if (!lastSwitch || (lastSwitch.targetTool ?? "gemini") !== selectedTool) {
+    return undefined;
+  }
+  return profiles.some((profile) => profile.isCurrent && profile.name === lastSwitch.profileName)
+    ? lastSwitch
+    : undefined;
 }
 
 export function clampPercentage(value: number): number {

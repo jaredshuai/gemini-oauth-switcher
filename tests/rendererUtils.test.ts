@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ProfileInfo } from "../src/shared/types";
+import type { LastSwitchResult, ProfileInfo } from "../src/shared/types";
 import * as rendererUtils from "../src/renderer/utils";
 import {
   describeUsageFailure,
@@ -70,6 +70,32 @@ describe("renderer utils", () => {
       geminiCommand: { available: true },
       checkedAt: 100
     })).toBe(false);
+  });
+
+  it("hides stale switch history that no longer belongs to the visible account list", () => {
+    const lastSwitch: LastSwitchResult = {
+      profileName: "old-profile",
+      switchedAt: 100,
+      verified: true,
+      targetTool: "gemini"
+    };
+    const profiles: ProfileInfo[] = [{
+      name: "current-profile",
+      profilePath: "C:\\profiles\\current-profile",
+      oauthPath: "C:\\profiles\\current-profile\\.gemini\\oauth_creds.json",
+      exists: true,
+      isCurrent: true
+    }];
+
+    expect(rendererUtils.getVisibleLastSwitch(lastSwitch, "gemini", profiles)).toBeUndefined();
+    expect(rendererUtils.getVisibleLastSwitch({ ...lastSwitch, profileName: "current-profile" }, "gemini", profiles))
+      .toEqual({ ...lastSwitch, profileName: "current-profile" });
+    expect(rendererUtils.getVisibleLastSwitch(
+      { ...lastSwitch, profileName: "current-profile" },
+      "gemini",
+      [{ ...profiles[0], isCurrent: false }]
+    )).toBeUndefined();
+    expect(rendererUtils.getVisibleLastSwitch(lastSwitch, "antigravity-cli", profiles)).toBeUndefined();
   });
 
   it("uses a resolved account email when no custom nickname exists", () => {

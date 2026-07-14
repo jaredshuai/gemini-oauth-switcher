@@ -1,13 +1,11 @@
 import { Activity, Plus, RefreshCw, Settings } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AppSettings,
   AppRuntimeInfo,
   AppUpdateStatus,
-  LastSwitchResult,
   LocalDiagnosticsResult,
-  OAuthLoginInspectResult,
-  OAuthLoginSession,
+  OAuthLoginSaveResult,
   ProfileInfo,
   ProfileListResult,
   ProfileUsageResult,
@@ -25,9 +23,9 @@ import { SettingsDialog } from "./components/SettingsDialog";
 import { StatusBar } from "./components/StatusBar";
 import { TargetToolSwitch } from "./components/TargetToolSwitch";
 import { emptyResult, TOOL_LABELS } from "./constants";
-import { startOAuthLoginAutoInspect } from "./oauthLoginPolling";
+import { useOAuthLoginFlow } from "./hooks/useOAuthLoginFlow";
 import type { StatusMessage, StatusVisibility } from "./types";
-import { copyText, describeUsageFailure, getApi, getErrorMessage, getProfileDisplayName, getProfileKey, shouldShowAutoUpdateSetting } from "./utils";
+import { copyText, describeUsageFailure, getApi, getErrorMessage, getProfileDisplayName, getProfileKey, getVisibleLastSwitch, shouldShowAutoUpdateSetting } from "./utils";
 
 export function App() {
   const [settings, setSettings] = useState<AppSettings>({ profilesRoot: "" });
@@ -61,19 +59,6 @@ export function App() {
   const [nicknameEditorProfile, setNicknameEditorProfile] = useState<ProfileInfo | undefined>();
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [isSavingNickname, setIsSavingNickname] = useState(false);
-  const [isOAuthLoginOpen, setIsOAuthLoginOpen] = useState(false);
-  const [oauthLoginSession, setOAuthLoginSession] = useState<OAuthLoginSession | undefined>();
-  const [oauthLoginInspection, setOAuthLoginInspection] = useState<OAuthLoginInspectResult | undefined>();
-  const [oauthLoginStatus, setOAuthLoginStatus] = useState<StatusMessage>({
-    tone: "idle",
-    text: "会先创建临时登录目录，登录成功后自动识别账号。"
-  });
-  const [oauthProfileNameDraft, setOAuthProfileNameDraft] = useState("");
-  const [oauthNicknameDraft, setOAuthNicknameDraft] = useState("");
-  const [isStartingOAuthLogin, setIsStartingOAuthLogin] = useState(false);
-  const [isInspectingOAuthLogin, setIsInspectingOAuthLogin] = useState(false);
-  const [isSavingOAuthLogin, setIsSavingOAuthLogin] = useState(false);
-  const [isCancellingOAuthLogin, setIsCancellingOAuthLogin] = useState(false);
   const [isRegisteringCurrentProfile, setIsRegisteringCurrentProfile] = useState(false);
   const [statusVisibility, setStatusVisibility] = useState<StatusVisibility>("visible");
   const [, setRelativeTimeTick] = useState(0);
@@ -83,7 +68,6 @@ export function App() {
   const refreshingUsageProfilesRef = useRef<Set<string>>(new Set());
   const isRefreshingAllUsageRef = useRef(false);
   const autoAntigravityUsageQueriedKeyRef = useRef<string>("");
-  const oauthInspectionInFlightRef = useRef(false);
 
   const currentProfile = useMemo(
     () => result.profiles.find((profile) => profile.isCurrent),
@@ -93,9 +77,7 @@ export function App() {
   const currentProfileDisplayName = currentProfile ? getProfileDisplayName(currentProfile, profileNicknames) : undefined;
   const toolLabels = TOOL_LABELS[selectedTool];
   const isGeminiTool = selectedTool === "gemini";
-  const loginCredentialLabel = isGeminiTool ? "OAuth 文件" : "登录凭据";
-  const visibleLastSwitch =
-    settings.lastSwitch && (settings.lastSwitch.targetTool ?? "gemini") === selectedTool ? settings.lastSwitch : undefined;
+  const visibleLastSwitch = getVisibleLastSwitch(settings.lastSwitch, selectedTool, result.profiles);
 
   const loadProfiles = useCallback(async (targetTool: TargetTool): Promise<ProfileListResult | undefined> => {
     const requestId = loadProfilesRequestIdRef.current + 1;
@@ -128,6 +110,39 @@ export function App() {
       }
     }
   }, []);
+
+  const existingProfileNames = useMemo(
+    () => result.profiles.map((profile) => profile.name),
+    [result.profiles]
+  );
+
+  const handleOAuthLoginSaved = useCallback((saved: OAuthLoginSaveResult) => {
+    const displayName = saved.nickname || saved.profileName;
+    setUsageByProfile({});
+    setStatus({ tone: "idle", text: `已保存 ${displayName}，正在刷新账号列表...` });
+    void (async () => {
+      let settingsLoaded = true;
+      try {
+        setSettings(await getApi().getSettings());
+      } catch {
+        settingsLoaded = false;
+      }
+      const nextProfiles = await loadProfiles(selectedTool);
+      setStatus(settingsLoaded && nextProfiles
+        ? { tone: "success", text: `已新增登录账号 ${displayName}。` }
+        : { tone: "error", text: `账号 ${displayName} 已保存，但界面刷新未完成。请点击刷新列表。` });
+    })().catch((error) => {
+      setStatus({ tone: "error", text: `账号 ${displayName} 已保存，但界面刷新失败：${getErrorMessage(error)}` });
+    });
+  }, [loadProfiles, selectedTool]);
+
+  const oauthLogin = useOAuthLoginFlow({
+    selectedTool,
+    profilesRoot: result.profilesRoot || settings.profilesRoot,
+    existingProfileNames,
+    isAccountActionBlocked: () => profileActionInFlightRef.current || settingsActionInFlightRef.current,
+    onSaved: handleOAuthLoginSaved
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -190,23 +205,6 @@ export function App() {
       window.clearInterval(timer);
     };
   }, []);
-
-  useEffect(() => {
-    const sessionId = oauthLoginSession?.sessionId;
-    if (!isOAuthLoginOpen || !sessionId || oauthLoginInspection?.oauthExists) {
-      return;
-    }
-
-    return startOAuthLoginAutoInspect({
-      inspect: () => requestOAuthLoginInspection(sessionId),
-      onResult: (inspection) => {
-        if (inspection.oauthExists) {
-          applyOAuthLoginInspection(inspection);
-        }
-      },
-      isComplete: (inspection) => inspection.oauthExists
-    });
-  }, [isOAuthLoginOpen, oauthLoginSession?.sessionId, Boolean(oauthLoginInspection?.oauthExists), loginCredentialLabel]);
 
   useEffect(() => {
     setStatusVisibility("visible");
@@ -566,178 +564,6 @@ export function App() {
     }
   }
 
-  function openOAuthLoginDialog() {
-    setOAuthLoginSession(undefined);
-    setOAuthLoginInspection(undefined);
-    setOAuthProfileNameDraft("");
-    setOAuthNicknameDraft("");
-    setOAuthLoginStatus({
-      tone: "idle",
-      text: `会先创建临时登录目录，登录成功后检测 ${loginCredentialLabel} 并保存到账号列表。`
-    });
-    setIsOAuthLoginOpen(true);
-  }
-
-  async function startOAuthLogin() {
-    setIsStartingOAuthLogin(true);
-    setOAuthLoginStatus({ tone: "idle", text: "正在打开独立 PowerShell 登录窗口..." });
-    try {
-      const session = await getApi().startOAuthLogin(selectedTool);
-      setOAuthLoginSession(session);
-      setOAuthLoginInspection(undefined);
-      setOAuthProfileNameDraft("");
-      setOAuthNicknameDraft("");
-      setOAuthLoginStatus({ tone: "success", text: "登录窗口已打开。完成浏览器登录后会自动检测账号。" });
-    } catch (error) {
-      setOAuthLoginStatus({ tone: "error", text: getErrorMessage(error) });
-    } finally {
-      setIsStartingOAuthLogin(false);
-    }
-  }
-
-  async function inspectOAuthLogin() {
-    if (!oauthLoginSession) {
-      setOAuthLoginStatus({ tone: "error", text: "请先打开登录窗口。" });
-      return;
-    }
-
-    if (oauthInspectionInFlightRef.current) {
-      setOAuthLoginStatus({ tone: "idle", text: `正在自动检测 ${loginCredentialLabel}...` });
-      return;
-    }
-
-    setIsInspectingOAuthLogin(true);
-    setOAuthLoginStatus({ tone: "idle", text: `正在检测 ${loginCredentialLabel}...` });
-    try {
-      const inspection = await requestOAuthLoginInspection(oauthLoginSession.sessionId);
-      if (!inspection) {
-        return;
-      }
-      if (!inspection.oauthExists) {
-        setOAuthLoginStatus({ tone: "idle", text: `还没有检测到 ${loginCredentialLabel}。请先在登录窗口完成登录。` });
-        return;
-      }
-      applyOAuthLoginInspection(inspection);
-    } catch (error) {
-      setOAuthLoginStatus({ tone: "error", text: getErrorMessage(error) });
-    } finally {
-      setIsInspectingOAuthLogin(false);
-    }
-  }
-
-  async function requestOAuthLoginInspection(sessionId: string): Promise<OAuthLoginInspectResult | undefined> {
-    if (oauthInspectionInFlightRef.current) {
-      return undefined;
-    }
-    oauthInspectionInFlightRef.current = true;
-    try {
-      return await getApi().inspectOAuthLogin(sessionId);
-    } finally {
-      oauthInspectionInFlightRef.current = false;
-    }
-  }
-
-  function applyOAuthLoginInspection(inspection: OAuthLoginInspectResult) {
-    setOAuthLoginInspection(inspection);
-    setOAuthProfileNameDraft(inspection.proposedProfileName ?? "");
-    setOAuthNicknameDraft(inspection.proposedNickname ?? "");
-    if (inspection.conflictProfileName) {
-      setOAuthLoginStatus({
-        tone: "error",
-        text: `账号已存在：${inspection.conflictProfileName}。请不要重复新增，或手动改成新的保存名称。`
-      });
-      return;
-    }
-    setOAuthLoginStatus({
-      tone: "success",
-      text: inspection.accountEmail
-        ? `已识别到账号 ${inspection.accountEmail}。`
-        : `已检测到 ${loginCredentialLabel}，但没有识别出邮箱。请手动填写保存名称。`
-    });
-  }
-
-  async function saveOAuthLogin() {
-    if (!oauthLoginSession) {
-      setOAuthLoginStatus({ tone: "error", text: "请先打开登录窗口。" });
-      return;
-    }
-    if (profileActionInFlightRef.current || settingsActionInFlightRef.current) {
-      setOAuthLoginStatus({ tone: "idle", text: "账号操作完成后再保存新增登录。" });
-      return;
-    }
-
-    const profileName = oauthProfileNameDraft.trim();
-    if (!profileName) {
-      setOAuthLoginStatus({ tone: "error", text: "请填写保存名称。" });
-      return;
-    }
-
-    setIsSavingOAuthLogin(true);
-    setOAuthLoginStatus({ tone: "idle", text: "正在保存到账号列表..." });
-    try {
-      const saved = await getApi().saveOAuthLogin({
-        sessionId: oauthLoginSession.sessionId,
-        profileName,
-        nickname: oauthNicknameDraft.trim()
-      });
-      const nextSettings = await getApi().getSettings();
-      setSettings(nextSettings);
-      setUsageByProfile({});
-      await loadProfiles(selectedTool);
-      setIsOAuthLoginOpen(false);
-      setOAuthLoginSession(undefined);
-      setOAuthLoginInspection(undefined);
-      setOAuthProfileNameDraft("");
-      setOAuthNicknameDraft("");
-      setStatus({ tone: "success", text: `已新增登录账号 ${saved.nickname || saved.profileName}。` });
-    } catch (error) {
-      setOAuthLoginStatus({ tone: "error", text: getErrorMessage(error) });
-    } finally {
-      setIsSavingOAuthLogin(false);
-    }
-  }
-
-  async function closeOAuthLoginDialog() {
-    if (isStartingOAuthLogin || isInspectingOAuthLogin || isSavingOAuthLogin || isCancellingOAuthLogin) {
-      return;
-    }
-
-    const session = oauthLoginSession;
-
-    if (!session) {
-      setIsOAuthLoginOpen(false);
-      setOAuthLoginSession(undefined);
-      setOAuthLoginInspection(undefined);
-      setOAuthProfileNameDraft("");
-      setOAuthNicknameDraft("");
-      return;
-    }
-
-    setIsCancellingOAuthLogin(true);
-    setOAuthLoginStatus({ tone: "idle", text: "正在清理临时登录目录..." });
-    try {
-      await getApi().cancelOAuthLogin({
-        sessionId: session.sessionId,
-        pendingProfilePath: session.pendingProfilePath
-      });
-      setIsOAuthLoginOpen(false);
-      setOAuthLoginSession(undefined);
-      setOAuthLoginInspection(undefined);
-      setOAuthProfileNameDraft("");
-      setOAuthNicknameDraft("");
-    } catch (error) {
-      setOAuthLoginStatus({ tone: "error", text: getErrorMessage(error) });
-    } finally {
-      setIsCancellingOAuthLogin(false);
-    }
-  }
-
-  function onOAuthLoginBackdropClick(event: MouseEvent<HTMLDivElement>) {
-    if (event.currentTarget === event.target) {
-      void closeOAuthLoginDialog();
-    }
-  }
-
   async function refreshUsage(profile: ProfileInfo) {
     const profileKey = getProfileKey(profile);
     const displayName = getProfileDisplayName(profile, profileNicknames);
@@ -858,7 +684,7 @@ export function App() {
                 <Activity className={isRefreshingAllUsage ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
                 <span className="hidden min-[1180px]:inline">查询用量</span>
               </button>
-              <button className="tool-button" onClick={openOAuthLoginDialog} title={`登录一个新的 ${toolLabels.name} profile`}>
+              <button className="tool-button" onClick={oauthLogin.open} title={`登录一个新的 ${toolLabels.name} profile`}>
                 <Plus className="h-4 w-4" />
                 新增登录
               </button>
@@ -977,28 +803,8 @@ export function App() {
           />
         ) : null}
 
-        {isOAuthLoginOpen ? (
-          <OAuthLoginDialog
-            selectedTool={selectedTool}
-            profilesRoot={result.profilesRoot || settings.profilesRoot}
-            session={oauthLoginSession}
-            inspection={oauthLoginInspection}
-            existingProfileNames={result.profiles.map((profile) => profile.name)}
-            status={oauthLoginStatus}
-            profileNameDraft={oauthProfileNameDraft}
-            nicknameDraft={oauthNicknameDraft}
-            isStarting={isStartingOAuthLogin}
-            isInspecting={isInspectingOAuthLogin}
-            isSaving={isSavingOAuthLogin}
-            isCancelling={isCancellingOAuthLogin}
-            onStart={startOAuthLogin}
-            onInspect={inspectOAuthLogin}
-            onProfileNameChange={setOAuthProfileNameDraft}
-            onNicknameChange={setOAuthNicknameDraft}
-            onSave={saveOAuthLogin}
-            onClose={closeOAuthLoginDialog}
-            onBackdropClick={onOAuthLoginBackdropClick}
-          />
+        {oauthLogin.isOpen ? (
+          <OAuthLoginDialog {...oauthLogin.dialogProps} />
         ) : null}
 
         {nicknameEditorProfile ? (

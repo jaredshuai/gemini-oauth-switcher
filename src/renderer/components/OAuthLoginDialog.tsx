@@ -7,6 +7,28 @@ import { buildProfileLoginPreview } from "../utils";
 import { PathLine, SettingsStatusBar } from "./StatusBar";
 import { useModalBehavior } from "./useModalBehavior";
 
+export interface OAuthLoginDialogProps {
+  selectedTool: TargetTool;
+  profilesRoot: string;
+  session?: OAuthLoginSession;
+  inspection?: OAuthLoginInspectResult;
+  existingProfileNames: string[];
+  status: StatusMessage;
+  profileNameDraft: string;
+  nicknameDraft: string;
+  isStarting: boolean;
+  isInspecting: boolean;
+  isSaving: boolean;
+  isCancelling: boolean;
+  onStart: () => void;
+  onInspect: () => void;
+  onProfileNameChange: (value: string) => void;
+  onNicknameChange: (value: string) => void;
+  onSave: () => void;
+  onClose: () => void;
+  onBackdropClick: (event: MouseEvent<HTMLDivElement>) => void;
+}
+
 export function OAuthLoginDialog({
   selectedTool,
   profilesRoot,
@@ -27,27 +49,7 @@ export function OAuthLoginDialog({
   onSave,
   onClose,
   onBackdropClick
-}: {
-  selectedTool: TargetTool;
-  profilesRoot: string;
-  session?: OAuthLoginSession;
-  inspection?: OAuthLoginInspectResult;
-  existingProfileNames: string[];
-  status: StatusMessage;
-  profileNameDraft: string;
-  nicknameDraft: string;
-  isStarting: boolean;
-  isInspecting: boolean;
-  isSaving: boolean;
-  isCancelling: boolean;
-  onStart: () => void;
-  onInspect: () => void;
-  onProfileNameChange: (value: string) => void;
-  onNicknameChange: (value: string) => void;
-  onSave: () => void;
-  onClose: () => void;
-  onBackdropClick: (event: MouseEvent<HTMLDivElement>) => void;
-}) {
+}: OAuthLoginDialogProps) {
   const isBusy = isStarting || isInspecting || isSaving || isCancelling;
   const toolLabels = TOOL_LABELS[selectedTool];
   const credentialLabel = selectedTool === "antigravity-cli" ? "登录凭据" : "OAuth 文件";
