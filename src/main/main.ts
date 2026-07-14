@@ -10,9 +10,9 @@ import {
   createOAuthLoginSession,
   inspectOAuthLoginSession,
   resolveOAuthIdentityFromText,
-  sanitizeOAuthProfileName,
-  saveOAuthLoginSession
+  sanitizeOAuthProfileName
 } from "./oauthLoginService";
+import { saveGeminiOAuthLoginWithSettings } from "./oauthLoginPersistenceService";
 import { cleanupStaleProfileRegistrations, deleteProfile, getProfileOAuthPath, listProfiles, switchProfile, validateProfileName } from "./profileService";
 import { registerCurrentGeminiAccount } from "./geminiRegistrationService";
 import { createAsyncOperationQueue } from "./operationQueue";
@@ -36,6 +36,7 @@ import { createAutoUpdateManager, type AutoUpdateManager } from "./updateService
 import { queryGeminiUsageFromOAuthFile } from "./usageService";
 import { queryAntigravityUsage, refreshAntigravityAccessToken } from "./antigravityUsageService";
 import { ensureWindowBoundsVisible, persistWindowBoundsBeforeClose, shouldHideWindowOnClose } from "./windowLifecycle";
+import { configureSingleInstance } from "./singleInstanceService";
 
 let mainWindow: BrowserWindow | undefined;
 let tray: Tray | undefined;
@@ -459,18 +460,20 @@ function registerIpcHandlers(): void {
     const target = getProfileTargetConfig(rawTargetTool ?? settings.selectedTool);
     const profileIdentifier = normalizeProfileIdentifier(rawProfileIdentifier);
     if (target.tool === "antigravity-cli") {
+      const nextNicknames = { ...(settings.profileNicknames ?? {}) };
+      delete nextNicknames[profileIdentifier];
       const deleted = await deleteAntigravityProfile({
         profileId: profileIdentifier,
         profiles: settings.antigravityProfiles ?? [],
         credentialStore: nativeAntigravityCredentialStore,
-        credentialTarget: ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET
-      });
-      const nextNicknames = { ...(settings.profileNicknames ?? {}) };
-      delete nextNicknames[deleted.profile.id];
-      await saveSettings(settingsPath(), {
-        antigravityProfiles: deleted.profiles,
-        profileNicknames: nextNicknames,
-        lastSelectedProfile: settings.lastSelectedProfile === deleted.profile.id ? undefined : settings.lastSelectedProfile
+        credentialTarget: ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET,
+        persistProfiles: async (profiles) => {
+          await saveSettings(settingsPath(), {
+            antigravityProfiles: profiles,
+            profileNicknames: nextNicknames,
+            lastSelectedProfile: settings.lastSelectedProfile === profileIdentifier ? undefined : settings.lastSelectedProfile
+          });
+        }
       });
       return {
         profileName: deleted.profile.name,
@@ -731,25 +734,24 @@ function registerIpcHandlers(): void {
       };
     }
 
-    const result = await saveOAuthLoginSession({
+    const result = await saveGeminiOAuthLoginWithSettings({
       profilesRoot: session.loginRoot,
       sessionId: session.sessionId,
       pendingProfilePath: session.pendingProfilePath,
-      targetTool: session.targetTool,
       profileName: request.profileName,
       nickname: request.nickname,
-      ...getCredentialOptions(target)
-    });
-
-    const nextNicknames = { ...(settings.profileNicknames ?? {}) };
-    if (result.nickname && result.nickname !== result.profileName) {
-      nextNicknames[result.profileName] = result.nickname;
-    } else {
-      delete nextNicknames[result.profileName];
-    }
-    await saveSettings(settingsPath(), {
-      selectedTool: session.targetTool ?? "gemini",
-      profileNicknames: nextNicknames
+      persistResult: async (saved) => {
+        const nextNicknames = { ...(settings.profileNicknames ?? {}) };
+        if (saved.nickname && saved.nickname !== saved.profileName) {
+          nextNicknames[saved.profileName] = saved.nickname;
+        } else {
+          delete nextNicknames[saved.profileName];
+        }
+        await saveSettings(settingsPath(), {
+          selectedTool: "gemini",
+          profileNicknames: nextNicknames
+        });
+      }
     });
     await cleanupOAuthLoginSession({
       profilesRoot: session.loginRoot,
@@ -825,51 +827,65 @@ function registerIpcHandlers(): void {
   });
 }
 
-app.setAppUserModelId("local.gemini-oauth-switcher");
-Menu.setApplicationMenu(null);
-registerIpcHandlers();
-
-app.whenReady().then(async () => {
-  createTray();
-  const settings = await readSettings(settingsPath());
-  const profilesRoot = getConfiguredProfilesRoot(settings);
-  const antigravityTarget = getProfileTargetConfig("antigravity-cli");
-  for (const loginRoot of [profilesRoot, getAntigravityLoginRoot(app.getPath("temp"))]) {
-    await cleanupStaleOAuthLoginSessions({
-      profilesRoot: loginRoot,
-      credentialStore: nativeAntigravityCredentialStore,
-      credentialTarget: antigravityTarget.credentialTarget
-    })
-      .then(logStaleLoginCleanupResult)
-      .catch((error: unknown) => {
-        console.warn("Failed to run stale OAuth login cleanup.", error);
-      });
+const isPrimaryInstance = configureSingleInstance({
+  requestLock: () => app.requestSingleInstanceLock(),
+  quit: () => app.quit(),
+  onSecondInstance: (listener) => {
+    app.on("second-instance", listener);
+  },
+  showMainWindow,
+  onShowError: (error) => {
+    console.warn("Failed to restore the primary window.", error);
   }
-  await cleanupStaleProfileRegistrations({ profilesRoot })
-    .then((result) => {
-      if (result.removed.length || result.failed.length || result.skipped.length) {
-        console.info("Stale profile registration cleanup completed.", result);
-      }
-    })
-    .catch((error: unknown) => {
-      console.warn("Failed to run stale profile registration cleanup.", error);
-    });
-  await createWindow();
-  syncAutoUpdateSetting(settings);
+});
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      void createWindow();
+if (isPrimaryInstance) {
+  app.setAppUserModelId("local.gemini-oauth-switcher");
+  Menu.setApplicationMenu(null);
+  registerIpcHandlers();
+
+  void app.whenReady().then(async () => {
+    createTray();
+    const settings = await readSettings(settingsPath());
+    const profilesRoot = getConfiguredProfilesRoot(settings);
+    const antigravityTarget = getProfileTargetConfig("antigravity-cli");
+    for (const loginRoot of [profilesRoot, getAntigravityLoginRoot(app.getPath("temp"))]) {
+      await cleanupStaleOAuthLoginSessions({
+        profilesRoot: loginRoot,
+        credentialStore: nativeAntigravityCredentialStore,
+        credentialTarget: antigravityTarget.credentialTarget
+      })
+        .then(logStaleLoginCleanupResult)
+        .catch((error: unknown) => {
+          console.warn("Failed to run stale OAuth login cleanup.", error);
+        });
+    }
+    await cleanupStaleProfileRegistrations({ profilesRoot })
+      .then((result) => {
+        if (result.removed.length || result.failed.length || result.skipped.length) {
+          console.info("Stale profile registration cleanup completed.", result);
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn("Failed to run stale profile registration cleanup.", error);
+      });
+    await createWindow();
+    syncAutoUpdateSetting(settings);
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        void createWindow();
+      }
+    });
+  });
+
+  app.on("before-quit", () => {
+    isQuitting = true;
+  });
+
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") {
+      app.quit();
     }
   });
-});
-
-app.on("before-quit", () => {
-  isQuitting = true;
-});
-
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
-});
+}

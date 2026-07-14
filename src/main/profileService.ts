@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { copyFile, lstat, mkdir, readdir, realpath, rename, rm, stat, unlink } from "node:fs/promises";
+import { copyFile, lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { DeleteProfileResult, ProfileInfo, ProfileListResult, SwitchProfileResult } from "../shared/types";
 import type { CredentialStore } from "./antigravityCredentialService";
-import { hashCredentialPayload } from "./antigravityCredentialService";
+import { hashCredentialPayload, writeVerifiedCredentialPayload } from "./antigravityCredentialService";
 
 const GEMINI_DIR = ".gemini";
 const OAUTH_FILE = "oauth_creds.json";
@@ -26,6 +26,16 @@ export interface ListProfilesOptions {
 
 export interface SwitchProfileOptions extends ListProfilesOptions {
   profileName: string;
+  fileOperations?: Partial<SwitchFileOperations>;
+}
+
+export interface SwitchFileOperations {
+  copyFile(sourcePath: string, targetPath: string): Promise<void>;
+  rename(sourcePath: string, targetPath: string): Promise<void>;
+  unlink(filePath: string): Promise<void>;
+  readFile(filePath: string): Promise<Buffer>;
+  writeFile(filePath: string, payload: Uint8Array): Promise<void>;
+  hashFile(filePath: string): Promise<string>;
 }
 
 export interface DeleteProfileOptions extends ListProfilesOptions {
@@ -357,13 +367,12 @@ async function switchProfileUnlocked(options: SwitchProfileOptions): Promise<Swi
       throw new Error(`${profileFileLabel} does not exist for profile: ${profileName}`);
     }
 
-    const sourceHash = hashCredentialPayload(sourcePayload);
-    await credentialMode.store.set(credentialMode.target, sourcePayload);
-    const targetPayload = await credentialMode.store.get(credentialMode.target);
-    const targetHash = targetPayload ? hashCredentialPayload(targetPayload) : undefined;
-    if (targetHash !== sourceHash) {
-      throw new Error(`Target ${profileFileLabel} hash does not match selected profile after switch`);
-    }
+    const { sourceHash, targetHash } = await writeVerifiedCredentialPayload({
+      store: credentialMode.store,
+      target: credentialMode.target,
+      payload: sourcePayload,
+      verificationErrorMessage: `Target ${profileFileLabel} hash does not match selected profile after switch`
+    });
 
     return {
       profileName,
@@ -382,28 +391,86 @@ async function switchProfileUnlocked(options: SwitchProfileOptions): Promise<Swi
   const sourceHash = await hashFile(sourcePath);
   await ensureTargetDirectory(targetPath, options.targetDirectoryLabel ?? "Target Gemini directory");
 
-  const tempPath = `${targetPath}.${process.pid}.${randomUUID()}.tmp`;
-  await copyFile(sourcePath, tempPath);
+  const fileOperations: SwitchFileOperations = {
+    copyFile,
+    rename,
+    unlink,
+    readFile,
+    writeFile: (filePath, payload) => writeFile(filePath, payload),
+    hashFile,
+    ...options.fileOperations
+  };
+  const previousTargetPayload = (await fileExists(targetPath))
+    ? await fileOperations.readFile(targetPath)
+    : undefined;
 
+  const tempPath = `${targetPath}.${process.pid}.${randomUUID()}.tmp`;
+  let targetReplaced = false;
   try {
-    await rename(tempPath, targetPath);
+    await fileOperations.copyFile(sourcePath, tempPath);
+    const tempHash = await fileOperations.hashFile(tempPath);
+    if (tempHash !== sourceHash) {
+      throw new Error(`Temporary ${profileFileLabel} hash does not match selected profile`);
+    }
+
+    await fileOperations.rename(tempPath, targetPath);
+    targetReplaced = true;
+    const targetHash = await fileOperations.hashFile(targetPath);
+    if (targetHash !== sourceHash) {
+      throw new Error(`Target ${profileFileLabel} hash does not match selected profile after switch`);
+    }
+
+    return {
+      profileName,
+      sourcePath,
+      targetPath,
+      sourceHash,
+      targetHash
+    };
   } catch (error) {
-    await unlink(tempPath).catch(() => undefined);
+    await fileOperations.unlink(tempPath).catch(() => undefined);
+    if (targetReplaced) {
+      try {
+        await restoreTargetFile(targetPath, previousTargetPayload, fileOperations);
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          `Failed to switch ${profileFileLabel} and rollback was incomplete.`
+        );
+      }
+    }
     throw error;
   }
+}
 
-  const targetHash = await hashFile(targetPath);
-  if (targetHash !== sourceHash) {
-    throw new Error(`Target ${profileFileLabel} hash does not match selected profile after switch`);
+async function restoreTargetFile(
+  targetPath: string,
+  previousPayload: Buffer | undefined,
+  operations: SwitchFileOperations
+): Promise<void> {
+  if (previousPayload === undefined) {
+    await operations.unlink(targetPath).catch((error: unknown) => {
+      if (!isNotFoundError(error)) {
+        throw error;
+      }
+    });
+    if (await fileExists(targetPath)) {
+      throw new Error("Target OAuth rollback verification failed.");
+    }
+    return;
   }
 
-  return {
-    profileName,
-    sourcePath,
-    targetPath,
-    sourceHash,
-    targetHash
-  };
+  const rollbackPath = `${targetPath}.${process.pid}.${randomUUID()}.rollback.tmp`;
+  try {
+    await operations.writeFile(rollbackPath, previousPayload);
+    await operations.rename(rollbackPath, targetPath);
+    const restoredPayload = await operations.readFile(targetPath);
+    if (!restoredPayload.equals(previousPayload)) {
+      throw new Error("Target OAuth rollback verification failed.");
+    }
+  } finally {
+    await operations.unlink(rollbackPath).catch(() => undefined);
+  }
 }
 
 export async function deleteProfile(options: DeleteProfileOptions): Promise<DeleteProfileResult> {

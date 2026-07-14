@@ -130,6 +130,27 @@ describe("antigravityProfileService", () => {
     expect(result.targetHash).toBe(sha256("alice-secret"));
   });
 
+  it("restores the previous official credential when switch verification fails", async () => {
+    const store = createMemoryCredentialStore({
+      "gemini-oauth-switcher:antigravity-cli:agy-alice": "alice-secret",
+      "gemini:antigravity": "previous-secret"
+    });
+    let officialWrites = 0;
+    store.set = async (target, payload) => {
+      if (target === "gemini:antigravity" && officialWrites++ === 0) {
+        store.entries.set(target, "corrupted-secret");
+        return;
+      }
+      store.entries.set(target, payload);
+    };
+
+    await expect(
+      switchAntigravityProfile({ profileId: "agy-alice", profiles, credentialStore: store })
+    ).rejects.toThrow(/hash does not match/i);
+
+    expect(store.entries.get("gemini:antigravity")).toBe("previous-secret");
+  });
+
   it("keeps the current account matched after agy refreshes its access token", async () => {
     const store = createMemoryCredentialStore({
       "gemini-oauth-switcher:antigravity-cli:agy-alice": agyCredential("old-access", "stable-refresh", "2026-01-01"),
@@ -211,6 +232,24 @@ describe("antigravityProfileService", () => {
     expect(store.entries.has("gemini-oauth-switcher:antigravity-cli:agy-alice")).toBe(false);
     expect(store.entries.get("gemini-oauth-switcher:antigravity-cli:agy-bob")).toBe("bob-secret");
     expect(store.entries.get("gemini:antigravity")).toBe("bob-secret");
+  });
+
+  it("restores a deleted Agy credential when profile metadata persistence fails", async () => {
+    const store = createMemoryCredentialStore({
+      "gemini-oauth-switcher:antigravity-cli:agy-alice": "alice-secret",
+      "gemini:antigravity": "bob-secret"
+    });
+
+    await expect(deleteAntigravityProfile({
+      profileId: "agy-alice",
+      profiles,
+      credentialStore: store,
+      persistProfiles: async () => {
+        throw new Error("settings unavailable");
+      }
+    })).rejects.toThrow("settings unavailable");
+
+    expect(store.entries.get("gemini-oauth-switcher:antigravity-cli:agy-alice")).toBe("alice-secret");
   });
 
   it("does not delete the currently active Agy account", async () => {

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanupStaleProfileRegistrations, deleteProfile, listProfiles, registerCurrentProfileSnapshot, switchProfile, validateProfileName } from "../src/main/profileService";
+import { cleanupStaleProfileRegistrations, deleteProfile, hashFile, listProfiles, registerCurrentProfileSnapshot, switchProfile, validateProfileName } from "../src/main/profileService";
 import type { CredentialStore } from "../src/main/antigravityCredentialService";
 
 const tempRoots: string[] = [];
@@ -126,6 +126,44 @@ describe("profileService", () => {
     expect(result.profileName).toBe("carol");
     expect(result.sourceHash).toBe(sha256(sourceCreds));
     expect(result.targetHash).toBe(sha256(sourceCreds));
+  });
+
+  it("does not replace the current OAuth when the temporary copy hash is wrong", async () => {
+    const root = await makeTempRoot();
+    await writeProfile(root, "carol", "selected-account");
+    const targetOAuthPath = path.join(root, "home", ".gemini", "oauth_creds.json");
+    await mkdir(path.dirname(targetOAuthPath), { recursive: true });
+    await writeFile(targetOAuthPath, "previous-account", "utf8");
+
+    await expect(switchProfile({
+      profilesRoot: root,
+      profileName: "carol",
+      targetOAuthPath,
+      fileOperations: {
+        hashFile: async (filePath) => filePath.endsWith(".tmp") ? sha256("corrupted-copy") : hashFile(filePath)
+      }
+    })).rejects.toThrow(/temporary OAuth file hash/i);
+
+    await expect(readFile(targetOAuthPath, "utf8")).resolves.toBe("previous-account");
+  });
+
+  it("restores the previous OAuth when post-replacement verification fails", async () => {
+    const root = await makeTempRoot();
+    await writeProfile(root, "carol", "selected-account");
+    const targetOAuthPath = path.join(root, "home", ".gemini", "oauth_creds.json");
+    await mkdir(path.dirname(targetOAuthPath), { recursive: true });
+    await writeFile(targetOAuthPath, "previous-account", "utf8");
+
+    await expect(switchProfile({
+      profilesRoot: root,
+      profileName: "carol",
+      targetOAuthPath,
+      fileOperations: {
+        hashFile: async (filePath) => filePath === targetOAuthPath ? sha256("corrupted-target") : hashFile(filePath)
+      }
+    })).rejects.toThrow(/hash does not match/i);
+
+    await expect(readFile(targetOAuthPath, "utf8")).resolves.toBe("previous-account");
   });
 
   it("registers the current target OAuth as a new profile without changing its contents", async () => {
@@ -356,6 +394,36 @@ describe("profileService", () => {
     expect(result.targetPath).toBe("gemini:antigravity");
     expect(result.sourceHash).toBe(sha256("carol-secret"));
     expect(result.targetHash).toBe(sha256("carol-secret"));
+  });
+
+  it("restores the previous generic credential target when verification fails", async () => {
+    const root = await makeTempRoot();
+    await mkdir(path.join(root, "carol"), { recursive: true });
+    const credentialStore = createMemoryCredentialStore({
+      "gemini-oauth-switcher:antigravity-cli:carol": "carol-secret",
+      "gemini:antigravity": "previous-secret"
+    });
+    let officialWrites = 0;
+    credentialStore.set = async (target, payload) => {
+      if (target === "gemini:antigravity" && officialWrites++ === 0) {
+        credentialStore.entries.set(target, "corrupted-secret");
+        return;
+      }
+      credentialStore.entries.set(target, payload);
+    };
+
+    await expect(switchProfile({
+      profilesRoot: root,
+      profileName: "carol",
+      targetOAuthPath: "gemini:antigravity",
+      profileFileRelativePath: path.join(".gemini", "antigravity-cli", "settings.json"),
+      profileFileLabel: "Antigravity CLI credential",
+      credentialStore,
+      credentialTarget: "gemini:antigravity",
+      getProfileCredentialTarget: (profileName) => `gemini-oauth-switcher:antigravity-cli:${profileName}`
+    })).rejects.toThrow(/hash does not match/i);
+
+    expect(credentialStore.entries.get("gemini:antigravity")).toBe("previous-secret");
   });
 
   it("does not use the shared target .tmp path when switching", async () => {

@@ -1,4 +1,4 @@
-import { ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET, getAntigravityProfileCredentialTarget, hashCredentialIdentity, hashCredentialPayload, type CredentialStore } from "./antigravityCredentialService";
+import { ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET, getAntigravityProfileCredentialTarget, hashCredentialIdentity, hashCredentialPayload, writeVerifiedCredentialPayload, type CredentialStore } from "./antigravityCredentialService";
 import { getDefaultTargetAntigravityCliDir } from "./paths";
 import type { AntigravityProfileRecord, ProfileInfo, ProfileListResult, SwitchProfileResult } from "../shared/types";
 export type { AntigravityProfileRecord } from "../shared/types";
@@ -11,6 +11,7 @@ interface AntigravityProfileOptions {
 
 interface SelectAntigravityProfileOptions extends AntigravityProfileOptions {
   profileId: string;
+  persistProfiles?: (profiles: AntigravityProfileRecord[]) => Promise<void>;
 }
 
 interface RegisterAntigravityProfileOptions extends AntigravityProfileOptions {
@@ -129,13 +130,12 @@ export async function switchAntigravityProfile(options: SelectAntigravityProfile
       throw new Error(`Antigravity CLI credential does not exist for profile: ${profile.name}`);
     }
 
-    const sourceHash = hashCredentialPayload(sourcePayload);
-    await options.credentialStore.set(credentialTarget, sourcePayload);
-    const targetPayload = await options.credentialStore.get(credentialTarget);
-    const targetHash = targetPayload ? hashCredentialPayload(targetPayload) : undefined;
-    if (targetHash !== sourceHash) {
-      throw new Error("Target Antigravity CLI credential hash does not match selected profile after switch");
-    }
+    const { sourceHash, targetHash } = await writeVerifiedCredentialPayload({
+      store: options.credentialStore,
+      target: credentialTarget,
+      payload: sourcePayload,
+      verificationErrorMessage: "Target Antigravity CLI credential hash does not match selected profile after switch"
+    });
 
     return {
       profileName: profile.name,
@@ -222,10 +222,33 @@ export async function deleteAntigravityProfile(options: SelectAntigravityProfile
       throw new Error("Cannot delete the current profile. Switch to another account first.");
     }
 
+    const remainingProfiles = options.profiles
+      .filter((candidate) => candidate.id !== profile.id)
+      .map(sanitizeRecord);
     await options.credentialStore.delete(profileTarget);
+    try {
+      await options.persistProfiles?.(remainingProfiles);
+    } catch (error) {
+      if (profilePayload) {
+        try {
+          await writeVerifiedCredentialPayload({
+            store: options.credentialStore,
+            target: profileTarget,
+            payload: profilePayload,
+            verificationErrorMessage: "Restored Antigravity profile credential hash does not match the deleted credential"
+          });
+        } catch (rollbackError) {
+          throw new AggregateError(
+            [error, rollbackError],
+            "Antigravity profile deletion failed and credential rollback was incomplete."
+          );
+        }
+      }
+      throw error;
+    }
     return {
       profile,
-      profiles: options.profiles.filter((candidate) => candidate.id !== profile.id).map(sanitizeRecord)
+      profiles: remainingProfiles
     };
   });
 }

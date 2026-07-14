@@ -14,6 +14,13 @@ export interface CredentialStore {
   delete(target: string): Promise<void>;
 }
 
+interface WriteVerifiedCredentialPayloadOptions {
+  store: CredentialStore;
+  target: string;
+  payload: string;
+  verificationErrorMessage: string;
+}
+
 export interface WinCredentialBindings {
   read(target: string): Buffer | undefined;
   write(target: string, username: string, payload: Buffer): void;
@@ -84,6 +91,44 @@ export function hashCredentialIdentity(payload: string): string {
   }
 
   return hashCredentialPayload(payload);
+}
+
+export async function writeVerifiedCredentialPayload(
+  options: WriteVerifiedCredentialPayloadOptions
+): Promise<{ sourceHash: string; targetHash: string }> {
+  const previousPayload = await options.store.get(options.target);
+  const previousHash = previousPayload === undefined ? undefined : hashCredentialPayload(previousPayload);
+  const sourceHash = hashCredentialPayload(options.payload);
+
+  try {
+    await options.store.set(options.target, options.payload);
+    const targetPayload = await options.store.get(options.target);
+    const targetHash = targetPayload === undefined ? undefined : hashCredentialPayload(targetPayload);
+    if (targetHash !== sourceHash) {
+      throw new Error(options.verificationErrorMessage);
+    }
+    return { sourceHash, targetHash };
+  } catch (error) {
+    try {
+      if (previousPayload === undefined) {
+        await options.store.delete(options.target);
+      } else {
+        await options.store.set(options.target, previousPayload);
+      }
+
+      const restoredPayload = await options.store.get(options.target);
+      const restoredHash = restoredPayload === undefined ? undefined : hashCredentialPayload(restoredPayload);
+      if (restoredHash !== previousHash) {
+        throw new Error("Credential rollback verification failed.");
+      }
+    } catch (rollbackError) {
+      throw new AggregateError(
+        [error, rollbackError],
+        "Credential write failed and rollback was incomplete."
+      );
+    }
+    throw error;
+  }
 }
 
 function getNativeCredentialStore(): CredentialStore {
