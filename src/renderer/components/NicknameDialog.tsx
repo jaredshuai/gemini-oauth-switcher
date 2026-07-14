@@ -43,10 +43,11 @@ export function NicknameDialog({
           </label>
           <input
             id="profile-nickname"
-            autoFocus
+            data-dialog-autofocus
             className="mt-2 w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-neutral-800 focus:ring-2 focus:ring-neutral-800/10"
             placeholder="例如 Work、Personal、公司账号"
             value={value}
+            maxLength={160}
             onChange={(event) => onChange(event.target.value)}
           />
           <div className="mt-2 truncate font-mono text-xs text-neutral-500" title={profile.name}>

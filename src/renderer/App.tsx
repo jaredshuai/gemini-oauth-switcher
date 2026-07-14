@@ -24,6 +24,7 @@ import { StatusBar } from "./components/StatusBar";
 import { TargetToolSwitch } from "./components/TargetToolSwitch";
 import { emptyResult, TOOL_LABELS } from "./constants";
 import { useOAuthLoginFlow } from "./hooks/useOAuthLoginFlow";
+import { refreshAfterOAuthLoginSave } from "./oauthLoginPostSave";
 import type { StatusMessage, StatusVisibility } from "./types";
 import { copyText, describeUsageFailure, getApi, getErrorMessage, getProfileDisplayName, getProfileKey, getVisibleLastSwitch, shouldShowAutoUpdateSetting } from "./utils";
 
@@ -64,6 +65,7 @@ export function App() {
   const [, setRelativeTimeTick] = useState(0);
   const profileActionInFlightRef = useRef(false);
   const settingsActionInFlightRef = useRef(false);
+  const selectedToolRef = useRef<TargetTool>("gemini");
   const loadProfilesRequestIdRef = useRef(0);
   const refreshingUsageProfilesRef = useRef<Set<string>>(new Set());
   const isRefreshingAllUsageRef = useRef(false);
@@ -79,13 +81,16 @@ export function App() {
   const isGeminiTool = selectedTool === "gemini";
   const visibleLastSwitch = getVisibleLastSwitch(settings.lastSwitch, selectedTool, result.profiles);
 
-  const loadProfiles = useCallback(async (targetTool: TargetTool): Promise<ProfileListResult | undefined> => {
+  const loadProfiles = useCallback(async (
+    targetTool: TargetTool,
+    isRelevant: () => boolean = () => true
+  ): Promise<ProfileListResult | undefined> => {
     const requestId = loadProfilesRequestIdRef.current + 1;
     loadProfilesRequestIdRef.current = requestId;
     setIsLoading(true);
     try {
       const nextResult = await getApi().listProfiles(targetTool);
-      if (requestId !== loadProfilesRequestIdRef.current) {
+      if (requestId !== loadProfilesRequestIdRef.current || !isRelevant()) {
         return undefined;
       }
       setResult(nextResult);
@@ -100,12 +105,12 @@ export function App() {
       });
       return nextResult;
     } catch (error) {
-      if (requestId === loadProfilesRequestIdRef.current) {
+      if (requestId === loadProfilesRequestIdRef.current && isRelevant()) {
         setStatus({ tone: "error", text: getErrorMessage(error) });
       }
       return undefined;
     } finally {
-      if (requestId === loadProfilesRequestIdRef.current) {
+      if (requestId === loadProfilesRequestIdRef.current && isRelevant()) {
         setIsLoading(false);
       }
     }
@@ -121,20 +126,23 @@ export function App() {
     setUsageByProfile({});
     setStatus({ tone: "idle", text: `已保存 ${displayName}，正在刷新账号列表...` });
     void (async () => {
-      let settingsLoaded = true;
-      try {
-        setSettings(await getApi().getSettings());
-      } catch {
-        settingsLoaded = false;
+      const outcome = await refreshAfterOAuthLoginSave({
+        saved,
+        getCurrentTool: () => selectedToolRef.current,
+        getSettings: () => getApi().getSettings(),
+        applySettings: setSettings,
+        loadProfiles
+      });
+      if (outcome.status === "skipped") {
+        return;
       }
-      const nextProfiles = await loadProfiles(selectedTool);
-      setStatus(settingsLoaded && nextProfiles
+      setStatus(outcome.settingsLoaded && outcome.profilesLoaded
         ? { tone: "success", text: `已新增登录账号 ${displayName}。` }
         : { tone: "error", text: `账号 ${displayName} 已保存，但界面刷新未完成。请点击刷新列表。` });
     })().catch((error) => {
       setStatus({ tone: "error", text: `账号 ${displayName} 已保存，但界面刷新失败：${getErrorMessage(error)}` });
     });
-  }, [loadProfiles, selectedTool]);
+  }, [loadProfiles]);
 
   const oauthLogin = useOAuthLoginFlow({
     selectedTool,
@@ -165,6 +173,7 @@ export function App() {
         setRuntimeInfo(nextRuntimeInfo);
         setUpdateStatus(nextUpdateStatus);
         const nextSelectedTool = nextSettings.selectedTool ?? "gemini";
+        selectedToolRef.current = nextSelectedTool;
         setSelectedTool(nextSelectedTool);
         setLocalDiagnostics(diagnostics);
         setProfilesRootDraft(nextSettings.profilesRoot);
@@ -290,7 +299,10 @@ export function App() {
 
     settingsActionInFlightRef.current = true;
     const previousTool = selectedTool;
+    loadProfilesRequestIdRef.current += 1;
+    selectedToolRef.current = targetTool;
     setSelectedTool(targetTool);
+    setIsLoading(true);
     setResult(emptyResult);
     setUsageByProfile({});
     setStatus({ tone: "idle", text: `正在切换到 ${TOOL_LABELS[targetTool].name}...` });
@@ -299,6 +311,7 @@ export function App() {
       setSettings(nextSettings);
       await loadProfiles(targetTool);
     } catch (error) {
+      selectedToolRef.current = previousTool;
       setSelectedTool(previousTool);
       setStatus({ tone: "error", text: getErrorMessage(error) });
       await loadProfiles(previousTool);
@@ -484,7 +497,7 @@ export function App() {
   }
 
   async function registerCurrentAccount() {
-    if (!result.targetHash || currentProfile || profileActionInFlightRef.current) {
+    if (!result.targetHash || currentProfile || profileActionInFlightRef.current || settingsActionInFlightRef.current) {
       return;
     }
 

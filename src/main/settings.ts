@@ -20,6 +20,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   usageDisplayMode: "used",
   uiTheme: "classic"
 };
+const MAX_PROFILE_NICKNAMES = 256;
+const MAX_PROFILE_NICKNAME_KEY_LENGTH = 255;
+const MAX_PROFILE_NICKNAME_LENGTH = 160;
 const saveQueues = new Map<string, Promise<AppSettings>>();
 
 export async function readSettings(settingsPath: string): Promise<AppSettings> {
@@ -172,11 +175,35 @@ function sanitizeProfileNicknames(value: unknown): Record<string, string> | unde
     return undefined;
   }
 
-  const entries = Object.entries(value)
-    .map(([key, nickname]) => [key.trim(), typeof nickname === "string" ? nickname.trim() : ""] as const)
-    .filter(([key, nickname]) => key && nickname);
+  const entries = new Map<string, string>();
+  const input = value as Record<string, unknown>;
+  for (const rawKey in input) {
+    if (!Object.prototype.hasOwnProperty.call(input, rawKey)) {
+      continue;
+    }
 
-  if (entries.length === 0) {
+    const key = rawKey.trim();
+    const rawNickname = input[rawKey];
+    if (!key || key.length > MAX_PROFILE_NICKNAME_KEY_LENGTH || typeof rawNickname !== "string") {
+      continue;
+    }
+
+    const nickname = rawNickname.trim().slice(0, MAX_PROFILE_NICKNAME_LENGTH).trimEnd();
+    if (!nickname) {
+      continue;
+    }
+
+    entries.delete(key);
+    entries.set(key, nickname);
+    if (entries.size > MAX_PROFILE_NICKNAMES) {
+      const oldestKey = entries.keys().next().value;
+      if (oldestKey !== undefined) {
+        entries.delete(oldestKey);
+      }
+    }
+  }
+
+  if (entries.size === 0) {
     return undefined;
   }
 

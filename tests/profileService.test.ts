@@ -1,9 +1,9 @@
-import { lstat, mkdtemp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readdir, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { deleteProfile, listProfiles, registerCurrentProfile, switchProfile, validateProfileName } from "../src/main/profileService";
+import { cleanupStaleProfileRegistrations, deleteProfile, listProfiles, registerCurrentProfileSnapshot, switchProfile, validateProfileName } from "../src/main/profileService";
 import type { CredentialStore } from "../src/main/antigravityCredentialService";
 
 const tempRoots: string[] = [];
@@ -136,10 +136,10 @@ describe("profileService", () => {
     await mkdir(path.dirname(targetOAuthPath), { recursive: true });
     await writeFile(targetOAuthPath, currentCreds, "utf8");
 
-    const result = await registerCurrentProfile({
+    const result = await registerCurrentProfileSnapshot({
       profilesRoot: root,
-      profileName: "new.user@example.com",
-      targetOAuthPath
+      targetOAuthPath,
+      deriveProfile: async () => ({ profileName: "new.user@example.com" })
     });
 
     const registeredOAuthPath = path.join(root, "new.user@example.com", ".gemini", "oauth_creds.json");
@@ -162,11 +162,79 @@ describe("profileService", () => {
     await writeFile(targetOAuthPath, "current", "utf8");
     await writeProfile(root, "existing", "old");
 
-    await expect(registerCurrentProfile({
+    await expect(registerCurrentProfileSnapshot({
       profilesRoot: root,
-      profileName: "existing",
-      targetOAuthPath
+      targetOAuthPath,
+      deriveProfile: async () => ({ profileName: "existing" })
     })).rejects.toThrow(/already exists/i);
+  });
+
+  it("derives profile metadata from the copied snapshot instead of a later source version", async () => {
+    const root = await makeTempRoot();
+    const targetRoot = await makeTempRoot();
+    const targetOAuthPath = path.join(targetRoot, ".gemini", "oauth_creds.json");
+    const originalCreds = JSON.stringify({ account: { email: "snapshot@example.com" }, token: "original" });
+    const replacementCreds = JSON.stringify({ account: { email: "replacement@example.com" }, token: "replacement" });
+    await mkdir(path.dirname(targetOAuthPath), { recursive: true });
+    await writeFile(targetOAuthPath, originalCreds, "utf8");
+
+    const result = await registerCurrentProfileSnapshot({
+      profilesRoot: root,
+      targetOAuthPath,
+      deriveProfile: async (snapshotPath) => {
+        await expect(readFile(snapshotPath, "utf8")).resolves.toBe(originalCreds);
+        await writeFile(targetOAuthPath, replacementCreds, "utf8");
+        return { profileName: "snapshot@example.com", accountEmail: "snapshot@example.com" };
+      }
+    });
+
+    await expect(readFile(result.targetPath, "utf8")).resolves.toBe(originalCreds);
+    expect(result).toMatchObject({
+      profileName: "snapshot@example.com",
+      accountEmail: "snapshot@example.com",
+      sourceHash: sha256(originalCreds),
+      targetHash: sha256(originalCreds)
+    });
+  });
+
+  it("rejects registering credentials already stored under a different profile name", async () => {
+    const root = await makeTempRoot();
+    const targetRoot = await makeTempRoot();
+    const duplicateCreds = JSON.stringify({ account: { email: "duplicate@example.com" }, token: "same" });
+    await writeProfile(root, "legacy-name", duplicateCreds);
+    const targetOAuthPath = path.join(targetRoot, ".gemini", "oauth_creds.json");
+    await mkdir(path.dirname(targetOAuthPath), { recursive: true });
+    await writeFile(targetOAuthPath, duplicateCreds, "utf8");
+
+    await expect(registerCurrentProfileSnapshot({
+      profilesRoot: root,
+      targetOAuthPath,
+      deriveProfile: async () => ({ profileName: "duplicate@example.com" })
+    })).rejects.toThrow(/already exists: legacy-name/i);
+
+    await expect(stat(path.join(root, "duplicate@example.com"))).rejects.toThrow();
+  });
+
+  it("removes only stale safe pending registration directories", async () => {
+    const root = await makeTempRoot();
+    const now = new Date("2026-07-14T08:00:00.000Z").getTime();
+    const staleName = ".pending-register-stale";
+    const freshName = ".pending-register-fresh";
+    await mkdir(path.join(root, staleName, ".gemini"), { recursive: true });
+    await mkdir(path.join(root, freshName), { recursive: true });
+    await mkdir(path.join(root, "regular-profile"), { recursive: true });
+    const staleTime = new Date(now - 2 * 60 * 60 * 1000);
+    await utimes(path.join(root, staleName), staleTime, staleTime);
+
+    const result = await cleanupStaleProfileRegistrations({
+      profilesRoot: root,
+      olderThanMs: 60 * 60 * 1000,
+      nowMs: () => now
+    });
+
+    expect(result).toEqual({ removed: [staleName], failed: [], skipped: [] });
+    expect(await readdir(root)).toEqual(expect.arrayContaining([freshName, "regular-profile"]));
+    await expect(stat(path.join(root, staleName))).rejects.toThrow();
   });
 
   it("lists Antigravity CLI profile settings with hashes and marks the current target config", async () => {

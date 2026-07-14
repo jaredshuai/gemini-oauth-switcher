@@ -61,7 +61,9 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
   private announcedUpdateVersion?: string;
   private downloadNoticePromise?: Promise<void>;
   private status: AppUpdateStatus = { phase: "idle" };
-  private checkPromise?: Promise<boolean>;
+  private checkPromise?: { generation: number; promise: Promise<boolean> };
+  private checkEventGeneration?: number;
+  private downloadGeneration?: number;
   private scheduleGeneration = 0;
 
   constructor(private readonly options: AutoUpdateManagerOptions) {
@@ -109,6 +111,10 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
     updater.autoDownload = true;
     updater.autoInstallOnAppQuit = true;
     this.attachListeners(updater);
+    if (!this.checkPromise) {
+      this.checkEventGeneration = activationGeneration;
+      this.downloadGeneration = activationGeneration;
+    }
     this.scheduleCheck();
     return true;
   }
@@ -119,28 +125,42 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
 
   async checkNow(): Promise<boolean> {
     const updater = this.updater;
-    if (!this.enabled || !updater || this.checkPromise || this.status.phase === "downloading" || this.status.phase === "downloaded") {
+    const generation = this.activationGeneration;
+    if (!this.enabled || !updater || this.status.phase === "downloading" || this.status.phase === "downloaded") {
       return false;
+    }
+    if (this.checkPromise) {
+      if (this.checkPromise.generation === generation) {
+        return false;
+      }
+      const staleCheck = this.checkPromise.promise;
+      return staleCheck.then(() => {
+        if (!this.enabled || this.activationGeneration !== generation) {
+          return false;
+        }
+        return this.checkNow();
+      });
     }
 
     this.clearScheduledCheck();
+    this.checkEventGeneration = generation;
     this.setStatus({ phase: "checking" });
     const checkPromise = Promise.resolve()
       .then(() => updater.checkForUpdates())
       .then(() => true)
       .catch((error: unknown) => {
-        if (this.enabled) {
+        if (this.enabled && this.activationGeneration === generation) {
           this.setStatus({ phase: "error" });
           this.logWarning("Auto update check failed.", error);
         }
         return false;
       })
       .finally(() => {
-        if (this.checkPromise === checkPromise) {
+        if (this.checkPromise?.promise === checkPromise) {
           this.checkPromise = undefined;
         }
       });
-    this.checkPromise = checkPromise;
+    this.checkPromise = { generation, promise: checkPromise };
     return checkPromise;
   }
 
@@ -149,6 +169,8 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
     this.setStatus({ phase: "disabled" });
     this.announcedUpdateVersion = undefined;
     this.downloadNoticePromise = undefined;
+    this.checkEventGeneration = undefined;
+    this.downloadGeneration = undefined;
     this.clearScheduledCheck();
     if (this.updater) {
       this.updater.autoDownload = false;
@@ -181,13 +203,16 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
     this.listenersAttached = true;
 
     updater.on("error", (error) => {
-      if (this.enabled) {
+      const hasCurrentActivity =
+        this.checkEventGeneration === this.activationGeneration ||
+        this.downloadGeneration === this.activationGeneration;
+      if (this.enabled && hasCurrentActivity) {
         this.setStatus({ phase: "error", latestVersion: this.status.latestVersion });
         this.logWarning("Auto update check failed.", error);
       }
     });
     updater.on("update-available", (info) => {
-      if (!this.enabled) {
+      if (!this.enabled || this.checkEventGeneration !== this.activationGeneration) {
         return;
       }
 
@@ -196,6 +221,7 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
         return;
       }
       this.announcedUpdateVersion = versionKey;
+      this.downloadGeneration = this.activationGeneration;
       this.setStatus({ phase: "downloading", latestVersion: info.version });
 
       const noticePromise = showUpdateDownloadStarted({
@@ -212,12 +238,12 @@ class AutoUpdateManagerImpl implements AutoUpdateManager {
       });
     });
     updater.on("update-not-available", () => {
-      if (this.enabled) {
+      if (this.enabled && this.checkEventGeneration === this.activationGeneration) {
         this.setStatus({ phase: "up-to-date" });
       }
     });
     updater.on("update-downloaded", (info) => {
-      if (!this.enabled) {
+      if (!this.enabled || this.downloadGeneration !== this.activationGeneration) {
         return;
       }
       this.setStatus({ phase: "downloaded", latestVersion: info.version ?? this.status.latestVersion });

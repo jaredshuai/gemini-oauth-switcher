@@ -27,4 +27,22 @@ describe("renderer accessibility contracts", () => {
     expect(hook).toContain('event.key !== "Tab"');
     expect(hook).toContain("previousFocus?.focus()");
   });
+
+  it("blocks every settings close path during mutations and focuses the nickname input", () => {
+    const settingsDialog = readRendererFile(path.join("components", "SettingsDialog.tsx"));
+    expect(settingsDialog).toContain("const isBusy =");
+    expect(settingsDialog).toContain("closeDisabled: isBusy");
+    expect(settingsDialog).toContain('disabled={isBusy} aria-label="关闭设置"');
+
+    const nicknameDialog = readRendererFile(path.join("components", "NicknameDialog.tsx"));
+    expect(nicknameDialog).toContain("data-dialog-autofocus");
+  });
+
+  it("bounds every editable nickname field", () => {
+    const nicknameDialog = readRendererFile(path.join("components", "NicknameDialog.tsx"));
+    const oauthLoginDialog = readRendererFile(path.join("components", "OAuthLoginDialog.tsx"));
+
+    expect(nicknameDialog).toContain("maxLength={160}");
+    expect(oauthLoginDialog).toContain("maxLength={160}");
+  });
 });

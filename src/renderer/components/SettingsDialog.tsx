@@ -69,14 +69,15 @@ export function SettingsDialog({
   const updateDisplay = describeAppUpdate(updateStatus, runtimeInfo, autoUpdateEnabled);
   const canCheckForUpdates = runtimeInfo.isPackaged && !runtimeInfo.isPortable && autoUpdateEnabled &&
     updateStatus.phase !== "checking" && updateStatus.phase !== "downloading" && updateStatus.phase !== "downloaded";
-  const dialogRef = useModalBehavior({ onClose, closeDisabled: isSaving });
+  const isBusy = isSaving || isSavingTrayBehavior || isSavingAutoUpdate || isSavingUsageDisplayMode || isSavingUiTheme;
+  const dialogRef = useModalBehavior({ onClose, closeDisabled: isBusy });
 
   return (
     <div ref={dialogRef} tabIndex={-1} className="settings-dialog-backdrop fixed inset-0 z-50 flex items-start justify-center bg-neutral-950/35 px-4 py-10" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
       <section className="parchment-dialog settings-dialog-sheet max-h-[calc(100vh-2.5rem)] w-full max-w-2xl overflow-y-auto overscroll-contain rounded-md p-5">
         <div className="settings-dialog-header flex items-center justify-between gap-3 border-b border-neutral-300 pb-4">
           <h2 id="settings-dialog-title" className="settings-dialog-title text-lg font-semibold text-neutral-950">设置</h2>
-          <button className="copy-icon-button settings-dialog-close" onClick={onClose} aria-label="关闭设置" title="关闭">
+          <button className="copy-icon-button settings-dialog-close" onClick={onClose} disabled={isBusy} aria-label="关闭设置" title="关闭">
             <X className="h-4 w-4" />
           </button>
         </div>

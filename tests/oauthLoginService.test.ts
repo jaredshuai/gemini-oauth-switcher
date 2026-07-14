@@ -289,6 +289,42 @@ describe("oauthLoginService", () => {
     expect(result.shortHash).toHaveLength(8);
   });
 
+  it("keeps waiting when the Gemini OAuth file contains truncated JSON", async () => {
+    const root = await makeTempRoot();
+    const pendingProfilePath = path.join(root, ".pending-login-truncated");
+    const geminiDir = path.join(pendingProfilePath, ".gemini");
+    await mkdir(geminiDir, { recursive: true });
+    await writeFile(path.join(geminiDir, "oauth_creds.json"), '{"access_token":"partial', "utf8");
+
+    const result = await inspectOAuthLoginSession({
+      profilesRoot: root,
+      sessionId: "truncated",
+      pendingProfilePath
+    });
+
+    expect(result.oauthExists).toBe(false);
+    expect(result.sha256).toBeUndefined();
+    expect(result.accountEmail).toBeUndefined();
+  });
+
+  it("keeps waiting when the Gemini OAuth file has no access token yet", async () => {
+    const root = await makeTempRoot();
+    const pendingProfilePath = path.join(root, ".pending-login-incomplete");
+    await writeOAuth(pendingProfilePath, {
+      email: "User@Gmail.com"
+    });
+
+    const result = await inspectOAuthLoginSession({
+      profilesRoot: root,
+      sessionId: "incomplete",
+      pendingProfilePath
+    });
+
+    expect(result.oauthExists).toBe(false);
+    expect(result.sha256).toBeUndefined();
+    expect(result.accountEmail).toBeUndefined();
+  });
+
   it("reports a duplicate profile name when the exact recognized email directory already exists", async () => {
     const root = await makeTempRoot();
     await mkdir(path.join(root, "user@gmail.com"), { recursive: true });

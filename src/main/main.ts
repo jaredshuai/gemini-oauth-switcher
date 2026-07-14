@@ -9,12 +9,13 @@ import {
   cleanupStaleOAuthLoginSessions,
   createOAuthLoginSession,
   inspectOAuthLoginSession,
-  resolveOAuthIdentityFromFile,
   resolveOAuthIdentityFromText,
   sanitizeOAuthProfileName,
   saveOAuthLoginSession
 } from "./oauthLoginService";
-import { deleteProfile, getProfileOAuthPath, hashFile, listProfiles, registerCurrentProfile, switchProfile, validateProfileName } from "./profileService";
+import { cleanupStaleProfileRegistrations, deleteProfile, getProfileOAuthPath, listProfiles, switchProfile, validateProfileName } from "./profileService";
+import { registerCurrentGeminiAccount } from "./geminiRegistrationService";
+import { createAsyncOperationQueue } from "./operationQueue";
 import { getProfileTargetConfig } from "./profileTargets";
 import {
   ANTIGRAVITY_OFFICIAL_CREDENTIAL_TARGET,
@@ -42,6 +43,7 @@ let isQuitting = false;
 let trayBehavior: TrayBehavior = "exit";
 let autoUpdateManager: AutoUpdateManager | undefined;
 const oauthLoginSessions = new Map<string, OAuthLoginSession>();
+const settingsDependentOperations = createAsyncOperationQueue();
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 const WINDOW_TITLE_BAR_HEIGHT = 36;
@@ -377,13 +379,13 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("settings:get", async () => readSettings(settingsPath()));
 
-  ipcMain.handle("settings:save", async (_event, patch: Partial<AppSettings>) => {
+  ipcMain.handle("settings:save", (_event, patch: Partial<AppSettings>) => settingsDependentOperations.run(async () => {
     const nextSettings = await saveSettings(settingsPath(), patch);
     trayBehavior = nextSettings.trayBehavior ?? "exit";
     applyWindowChromeTheme(nextSettings);
     syncAutoUpdateSetting(nextSettings);
     return nextSettings;
-  });
+  }));
 
   ipcMain.handle("profiles:list", async (_event, rawTargetTool?: unknown) => {
     const settings = await readSettings(settingsPath());
@@ -542,41 +544,19 @@ function registerIpcHandlers(): void {
     };
   });
 
-  ipcMain.handle("profiles:gemini:registerCurrent", async () => {
+  ipcMain.handle("profiles:gemini:registerCurrent", () => settingsDependentOperations.run(async () => {
     const settings = await readSettings(settingsPath());
     const profilesRoot = getConfiguredProfilesRoot(settings);
     const targetOAuthPath = getDefaultTargetOAuthPath();
-    const accountEmail = (await resolveOAuthIdentityFromFile(targetOAuthPath)).accountEmail;
-    const targetHash = await hashFile(targetOAuthPath);
-    const profileName = accountEmail
-      ? sanitizeOAuthProfileName(accountEmail)
-      : `gemini-account-${targetHash.slice(0, 8)}`;
-    const registered = await registerCurrentProfile({
+    return registerCurrentGeminiAccount({
       profilesRoot,
-      profileName,
-      targetOAuthPath
+      targetOAuthPath,
+      profileNicknames: settings.profileNicknames,
+      saveSettingsPatch: async (patch) => {
+        await saveSettings(settingsPath(), patch);
+      }
     });
-    const nextNicknames = { ...(settings.profileNicknames ?? {}) };
-    if (accountEmail && accountEmail !== profileName) {
-      nextNicknames[profileName] = accountEmail;
-    }
-    await saveSettings(settingsPath(), {
-      selectedTool: "gemini",
-      lastSelectedProfile: profileName,
-      profileNicknames: nextNicknames
-    });
-
-    return {
-      sessionId: "current-gemini",
-      targetTool: "gemini",
-      profileName,
-      nickname: accountEmail,
-      profilePath: path.join(profilesRoot, profileName),
-      oauthPath: registered.targetPath,
-      accountEmail,
-      sha256: registered.targetHash
-    };
-  });
+  }));
 
   ipcMain.handle("profiles:usage:refresh", async (_event, rawProfileIdentifier: unknown, rawTargetTool?: unknown) => {
     const settings = await readSettings(settingsPath());
@@ -865,6 +845,15 @@ app.whenReady().then(async () => {
         console.warn("Failed to run stale OAuth login cleanup.", error);
       });
   }
+  await cleanupStaleProfileRegistrations({ profilesRoot })
+    .then((result) => {
+      if (result.removed.length || result.failed.length || result.skipped.length) {
+        console.info("Stale profile registration cleanup completed.", result);
+      }
+    })
+    .catch((error: unknown) => {
+      console.warn("Failed to run stale profile registration cleanup.", error);
+    });
   await createWindow();
   syncAutoUpdateSetting(settings);
 

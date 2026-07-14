@@ -33,6 +33,37 @@ export interface DeleteProfileOptions extends ListProfilesOptions {
   removeDirectory?: (profilePath: string) => Promise<void>;
 }
 
+export interface ProfileRegistrationMetadata {
+  profileName: string;
+  nickname?: string;
+  accountEmail?: string;
+}
+
+export interface RegisterCurrentProfileSnapshotOptions {
+  profilesRoot: string;
+  targetOAuthPath: string;
+  profileFileRelativePath?: string;
+  profileFileLabel?: string;
+  deriveProfile: (snapshotPath: string, sha256: string) => Promise<ProfileRegistrationMetadata>;
+}
+
+export interface RegisterCurrentProfileSnapshotResult extends SwitchProfileResult, ProfileRegistrationMetadata {
+  profilePath: string;
+}
+
+export interface CleanupStaleProfileRegistrationsOptions {
+  profilesRoot: string;
+  olderThanMs?: number;
+  nowMs?: () => number;
+  removeDirectory?: (profilePath: string) => Promise<void>;
+}
+
+export interface CleanupStaleProfileRegistrationsResult {
+  removed: string[];
+  failed: string[];
+  skipped: string[];
+}
+
 export function getProfileOAuthPath(profilesRoot: string, profileName: string): string {
   return getProfileFilePath(profilesRoot, profileName);
 }
@@ -184,62 +215,125 @@ export async function switchProfile(options: SwitchProfileOptions): Promise<Swit
   return runTargetOperation(credentialMode?.target ?? path.resolve(options.targetOAuthPath), () => switchProfileUnlocked(options));
 }
 
-export async function registerCurrentProfile(options: SwitchProfileOptions): Promise<SwitchProfileResult> {
+export async function registerCurrentProfileSnapshot(
+  options: RegisterCurrentProfileSnapshotOptions
+): Promise<RegisterCurrentProfileSnapshotResult> {
   const profilesRoot = path.resolve(options.profilesRoot);
-  const profileName = validateProfileName(options.profileName);
-  const profilePath = path.resolve(profilesRoot, profileName);
-  return runTargetOperation(profilePath, () => registerCurrentProfileUnlocked({ ...options, profilesRoot, profileName }));
+  const operationKey = path.join(profilesRoot, `${PENDING_REGISTER_PREFIX}queue`);
+  return runTargetOperation(operationKey, () => registerCurrentProfileSnapshotUnlocked({ ...options, profilesRoot }));
 }
 
-async function registerCurrentProfileUnlocked(options: SwitchProfileOptions): Promise<SwitchProfileResult> {
+async function registerCurrentProfileSnapshotUnlocked(
+  options: RegisterCurrentProfileSnapshotOptions
+): Promise<RegisterCurrentProfileSnapshotResult> {
   const profilesRoot = path.resolve(options.profilesRoot);
-  const profileName = validateProfileName(options.profileName);
   const sourcePath = path.resolve(options.targetOAuthPath);
-  const profilePath = path.resolve(profilesRoot, profileName);
   const profileFileRelativePath = normalizeProfileFileRelativePath(options.profileFileRelativePath);
-  const targetPath = path.join(profilePath, profileFileRelativePath);
   const profileFileLabel = options.profileFileLabel ?? "OAuth file";
 
-  if (!isInsideDirectory(profilePath, profilesRoot)) {
-    throw new Error("Invalid profile name: profile must be a direct child of profilesRoot");
-  }
   if (!(await fileExists(sourcePath))) {
     throw new Error(`Current ${profileFileLabel} does not exist`);
   }
 
   await mkdir(profilesRoot, { recursive: true });
-  const existingProfile = await lstat(profilePath).catch((error: unknown) => {
-    if (isNotFoundError(error)) {
-      return undefined;
-    }
-    throw error;
-  });
-  if (existingProfile) {
-    throw new Error(`Profile already exists: ${profileName}`);
-  }
-
-  const sourceHash = await hashFile(sourcePath);
   const pendingProfilePath = path.join(profilesRoot, `${PENDING_REGISTER_PREFIX}${randomUUID()}`);
   const pendingTargetPath = path.join(pendingProfilePath, profileFileRelativePath);
   try {
+    const sourceHashBefore = await hashFile(sourcePath);
     await mkdir(path.dirname(pendingTargetPath), { recursive: true });
     await copyFile(sourcePath, pendingTargetPath);
-    const targetHash = await hashFile(pendingTargetPath);
-    if (targetHash !== sourceHash) {
-      throw new Error(`Registered ${profileFileLabel} hash does not match the current target`);
+    const [sourceHashAfter, snapshotHash] = await Promise.all([
+      hashFile(sourcePath),
+      hashFile(pendingTargetPath)
+    ]);
+    if (sourceHashBefore !== sourceHashAfter || snapshotHash !== sourceHashAfter) {
+      throw new Error(`Current ${profileFileLabel} changed while it was being registered. Try again.`);
     }
+
+    const metadata = await options.deriveProfile(pendingTargetPath, snapshotHash);
+    const profileName = validateProfileName(metadata.profileName);
+    const profilePath = path.resolve(profilesRoot, profileName);
+    if (!isInsideDirectory(profilePath, profilesRoot)) {
+      throw new Error("Invalid profile name: profile must be a direct child of profilesRoot");
+    }
+    const existingProfile = await lstat(profilePath).catch((error: unknown) => {
+      if (isNotFoundError(error)) {
+        return undefined;
+      }
+      throw error;
+    });
+    if (existingProfile) {
+      throw new Error(`Profile already exists: ${profileName}`);
+    }
+
+    await assertNoDuplicateProfileHash(profilesRoot, profileFileRelativePath, snapshotHash);
     await rename(pendingProfilePath, profilePath);
+    const targetPath = path.join(profilePath, profileFileRelativePath);
     return {
+      ...metadata,
       profileName,
+      profilePath,
       sourcePath,
       targetPath,
-      sourceHash,
-      targetHash
+      sourceHash: snapshotHash,
+      targetHash: snapshotHash
     };
   } catch (error) {
     await rm(pendingProfilePath, { recursive: true, force: true }).catch(() => undefined);
     throw error;
   }
+}
+
+export async function cleanupStaleProfileRegistrations(
+  options: CleanupStaleProfileRegistrationsOptions
+): Promise<CleanupStaleProfileRegistrationsResult> {
+  const profilesRoot = path.resolve(options.profilesRoot);
+  const olderThanMs = options.olderThanMs ?? 24 * 60 * 60 * 1000;
+  const nowMs = options.nowMs ?? Date.now;
+  const removeDirectory = options.removeDirectory ?? ((profilePath: string) => rm(profilePath, { recursive: true, force: true }));
+  const rootStat = await stat(profilesRoot).catch((error: unknown) => {
+    if (isNotFoundError(error)) {
+      return undefined;
+    }
+    throw error;
+  });
+  if (!rootStat?.isDirectory()) {
+    return { removed: [], failed: [], skipped: [] };
+  }
+
+  const removed: string[] = [];
+  const failed: string[] = [];
+  const skipped: string[] = [];
+  const entries = (await readdir(profilesRoot, { withFileTypes: true }))
+    .filter((entry) => entry.name.startsWith(PENDING_REGISTER_PREFIX));
+  const results = await Promise.allSettled(entries.map(async (entry) => {
+    const entryPath = path.join(profilesRoot, entry.name);
+    const entryStat = await lstat(entryPath).catch((error: unknown) => {
+      if (isNotFoundError(error)) {
+        return undefined;
+      }
+      throw error;
+    });
+    if (!entryStat || nowMs() - entryStat.mtimeMs < olderThanMs) {
+      return;
+    }
+    if (!entryStat.isDirectory() || entryStat.isSymbolicLink() || !(await isSafeDirectChildDirectory(profilesRoot, entryPath))) {
+      skipped.push(entry.name);
+      return;
+    }
+    await removeDirectory(entryPath);
+    removed.push(entry.name);
+  }));
+  for (const [index, result] of results.entries()) {
+    if (result.status === "rejected") {
+      failed.push(entries[index]?.name ?? "unknown");
+    }
+  }
+
+  for (const values of [removed, failed, skipped]) {
+    values.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  }
+  return { removed, failed, skipped };
 }
 
 async function switchProfileUnlocked(options: SwitchProfileOptions): Promise<SwitchProfileResult> {
@@ -431,6 +525,41 @@ async function assertProfileFileIsSafe(profilesRoot: string, profileFilePath: st
   const [realRoot, realProfileFilePath] = await Promise.all([realpath(profilesRoot), realpath(profileFilePath)]);
   if (!isInsideDirectory(realProfileFilePath, realRoot)) {
     throw new Error(`${profileFileLabel} resolves outside profilesRoot.`);
+  }
+}
+
+async function assertNoDuplicateProfileHash(
+  profilesRoot: string,
+  profileFileRelativePath: string,
+  snapshotHash: string
+): Promise<void> {
+  const entries = await readdir(profilesRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith(PENDING_LOGIN_PREFIX) || entry.name.startsWith(PENDING_REGISTER_PREFIX)) {
+      continue;
+    }
+    const profilePath = path.join(profilesRoot, entry.name);
+    await assertProfileDirectoryIsSafe(profilesRoot, profilePath);
+    const profileFilePath = path.join(profilePath, profileFileRelativePath);
+    if (!(await fileExists(profileFilePath))) {
+      continue;
+    }
+    await assertProfileFileIsSafe(profilesRoot, profileFilePath, "Profile OAuth file");
+    if (await hashFile(profileFilePath) === snapshotHash) {
+      throw new Error(`Profile already exists: ${entry.name}`);
+    }
+  }
+}
+
+async function isSafeDirectChildDirectory(profilesRoot: string, entryPath: string): Promise<boolean> {
+  try {
+    const [realRoot, realEntryPath] = await Promise.all([realpath(profilesRoot), realpath(entryPath)]);
+    return isInsideDirectory(realEntryPath, realRoot);
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return false;
+    }
+    throw error;
   }
 }
 

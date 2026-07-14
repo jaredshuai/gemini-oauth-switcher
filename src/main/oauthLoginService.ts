@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import type { Stats } from "node:fs";
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -179,9 +180,26 @@ export async function inspectOAuthLoginSession(options: OAuthLoginSessionOptions
     };
   }
 
-  const [oauthStat, fileIdentity, fileHash] = oauthExists
-    ? await Promise.all([stat(oauthPath), readOAuthIdentity(oauthPath), hashFile(oauthPath)])
-    : [await stat(pendingProfilePath), {}, undefined] as const;
+  let oauthStat: Stats;
+  let fileIdentity: ParsedOAuthIdentity = {};
+  let fileHash: string | undefined;
+  if (oauthExists) {
+    const [nextOAuthStat, oauthText] = await Promise.all([stat(oauthPath), readFile(oauthPath, "utf8")]);
+    if (targetTool === "gemini" && !isCompleteGeminiOAuthCredential(oauthText)) {
+      return {
+        sessionId: options.sessionId,
+        targetTool,
+        pendingProfilePath,
+        oauthPath,
+        oauthExists: false
+      };
+    }
+    oauthStat = nextOAuthStat;
+    fileIdentity = readOAuthIdentityFromText(oauthText);
+    fileHash = createHash("sha256").update(oauthText).digest("hex");
+  } else {
+    oauthStat = await stat(pendingProfilePath);
+  }
   const credentialIdentity = credentialPayload && !fileIdentity.accountEmail
     ? await (options.resolveIdentity ?? resolveOAuthIdentityFromText)(credentialPayload)
     : undefined;
@@ -486,11 +504,18 @@ export function buildPowerShellLaunchCommand(script: string, title = "Gemini OAu
   };
 }
 
-async function readOAuthIdentity(oauthPath: string): Promise<ParsedOAuthIdentity> {
+function isCompleteGeminiOAuthCredential(value: string): boolean {
   try {
-    return readOAuthIdentityFromText(await readFile(oauthPath, "utf8"));
+    const parsed = JSON.parse(value) as { access_token?: unknown };
+    return Boolean(
+      parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      typeof parsed.access_token === "string" &&
+      parsed.access_token.trim()
+    );
   } catch {
-    return {};
+    return false;
   }
 }
 

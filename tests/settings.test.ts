@@ -62,6 +62,45 @@ describe("settings defaults", () => {
     });
   });
 
+  it("bounds profile nickname keys and values", async () => {
+    const root = await makeTempRoot();
+    const settingsPath = path.join(root, "settings.json");
+    const maximumKey = "k".repeat(255);
+    const oversizedKey = "k".repeat(256);
+
+    await saveSettings(settingsPath, {
+      profileNicknames: {
+        [maximumKey]: "Allowed",
+        [oversizedKey]: "Ignored",
+        work: "N".repeat(161)
+      }
+    });
+
+    const settings = await readSettings(settingsPath);
+    expect(settings.profileNicknames?.[maximumKey]).toBe("Allowed");
+    expect(settings.profileNicknames).not.toHaveProperty(oversizedKey);
+    expect(settings.profileNicknames?.work).toBe("N".repeat(160));
+  });
+
+  it("keeps the latest 256 profile nicknames in deterministic input order", async () => {
+    const root = await makeTempRoot();
+    const settingsPath = path.join(root, "settings.json");
+    const profileNicknames = Object.fromEntries(
+      Array.from({ length: 260 }, (_, index) => [
+        `profile-${String(index).padStart(3, "0")}`,
+        `Nickname ${index}`
+      ])
+    );
+
+    await saveSettings(settingsPath, { profileNicknames });
+
+    const settings = await readSettings(settingsPath);
+    expect(Object.keys(settings.profileNicknames ?? {})).toHaveLength(256);
+    expect(settings.profileNicknames).not.toHaveProperty("profile-003");
+    expect(settings.profileNicknames?.["profile-004"]).toBe("Nickname 4");
+    expect(settings.profileNicknames?.["profile-259"]).toBe("Nickname 259");
+  });
+
   it("stores only sanitized Antigravity account metadata", async () => {
     const root = await makeTempRoot();
     const settingsPath = path.join(root, "settings.json");

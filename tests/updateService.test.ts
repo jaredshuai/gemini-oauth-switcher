@@ -133,6 +133,45 @@ describe("auto update checks", () => {
     expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
   });
 
+  it("isolates a re-enabled updater from an unresolved check in the previous activation", async () => {
+    const { updater, listeners } = createFakeUpdater();
+    let rejectOldCheck: ((error: Error) => void) | undefined;
+    const oldCheck = new Promise<never>((_resolve, reject) => {
+      rejectOldCheck = reject;
+    });
+    updater.checkForUpdates
+      .mockImplementationOnce(() => oldCheck)
+      .mockResolvedValueOnce(undefined);
+    const scheduledChecks: Array<() => void> = [];
+    const manager = createAutoUpdateManager({
+      isPackaged: true,
+      isPortable: false,
+      updater,
+      setTimeoutFn: (callback) => {
+        scheduledChecks.push(callback);
+        return Symbol("timer");
+      },
+      clearTimeoutFn: () => undefined,
+      showMessageBox: async () => ({ response: 1 }),
+      prepareToQuitForUpdate: vi.fn()
+    });
+
+    await manager.setEnabled(true);
+    const oldCheckResult = manager.checkNow();
+    await manager.setEnabled(false);
+    await manager.setEnabled(true);
+    expect(manager.getStatus()).toEqual({ phase: "idle" });
+
+    listeners.get("error")?.(new Error("old event"));
+    scheduledChecks.at(-1)?.();
+    rejectOldCheck?.(new Error("old check failed"));
+    await expect(oldCheckResult).resolves.toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+    expect(manager.getStatus()).toEqual({ phase: "checking" });
+  });
+
   it("waits for the download notice before showing the install prompt", async () => {
     const { updater, listeners } = createFakeUpdater();
     let closeDownloadNotice: (() => void) | undefined;

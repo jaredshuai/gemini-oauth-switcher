@@ -134,6 +134,7 @@ export function OAuthLoginDialog({
                     id="oauth-nickname"
                     className="mt-2 w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-neutral-800 focus:ring-2 focus:ring-neutral-800/10"
                     value={nicknameDraft}
+                    maxLength={160}
                     onChange={(event) => onNicknameChange(event.target.value)}
                     disabled={isSaving}
                     placeholder="可选"
