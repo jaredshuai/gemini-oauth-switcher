@@ -49,6 +49,24 @@ describe("renderer utils", () => {
     }, true)).toEqual({ text: "便携版需手动更新", tone: "muted" });
   });
 
+  it("turns settings recovery states into persistent user-facing warnings", () => {
+    const describeSettingsRecovery = (rendererUtils as typeof rendererUtils & {
+      describeSettingsRecovery?: (status: string | undefined) => { text: string; tone: string } | undefined;
+    }).describeSettingsRecovery;
+
+    expect(describeSettingsRecovery).toBeTypeOf("function");
+    expect(describeSettingsRecovery!("loaded")).toBeUndefined();
+    expect(describeSettingsRecovery!("first_run")).toBeUndefined();
+    expect(describeSettingsRecovery!("recovered_from_backup")).toEqual({
+      tone: "warning",
+      text: "设置文件异常，已从备份恢复。请确认账号列表和偏好设置是否完整。"
+    });
+    expect(describeSettingsRecovery!("defaults_after_corruption")).toEqual({
+      tone: "error",
+      text: "设置文件和备份都无法读取，已使用默认设置。Antigravity 账号登记和界面偏好可能需要重新配置。"
+    });
+  });
+
   it("compacts account diagnostics only when the current account and local environment are healthy", () => {
     expect(rendererUtils.shouldCompactAccountStatus("gemini", true, {
       envRisks: [],

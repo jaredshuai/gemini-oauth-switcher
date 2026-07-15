@@ -20,7 +20,8 @@
     "dist:win:portable": "pnpm build && electron-builder --win portable",
     "dist:win:installer": "pnpm build && electron-builder --win nsis",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "verify:windows-artifacts": "node scripts/verify-windows-artifacts.mjs"
   },
   "dependencies": {
     "@koromix/koffi-win32-x64": "3.1.1",

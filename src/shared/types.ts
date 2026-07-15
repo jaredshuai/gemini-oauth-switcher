@@ -11,6 +11,7 @@ export type RevealTarget = "profilesRoot" | "targetGeminiDir" | "targetAntigravi
 /** Global usage percentage display preference shared by Gemini and Antigravity. */
 export type UsageDisplayMode = "used" | "remaining";
 export type UiTheme = "classic" | "rpg-parchment";
+export type SettingsReadStatus = "loaded" | "first_run" | "recovered_from_backup" | "defaults_after_corruption";
 export type AppUpdatePhase = "disabled" | "idle" | "checking" | "up-to-date" | "downloading" | "downloaded" | "error";
 
 export interface AppUpdateStatus {
@@ -109,6 +110,7 @@ export interface LocalDiagnosticsResult {
     available: boolean;
     path?: string;
   };
+  settingsReadStatus?: SettingsReadStatus;
   checkedAt: number;
 }
 
@@ -195,6 +197,7 @@ export interface GeminiSwitcherApi {
   refreshProfileUsage(profileIdentifier: string, targetTool?: TargetTool): Promise<ProfileUsageResult>;
   refreshAllUsage(targetTool?: TargetTool): Promise<Record<string, ProfileUsageResult>>;
   getLocalDiagnostics(): Promise<LocalDiagnosticsResult>;
+  reportRendererFailure(): Promise<void>;
   selectDirectory(defaultPath?: string): Promise<string | undefined>;
   revealPath(target: RevealTarget): Promise<void>;
 }

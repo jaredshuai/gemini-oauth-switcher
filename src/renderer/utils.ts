@@ -1,4 +1,4 @@
-import type { AppRuntimeInfo, AppUpdateStatus, LastSwitchResult, LocalDiagnosticsResult, ProfileInfo, ProfileUsageResult, TargetTool, UsageDisplayMode } from "../shared/types";
+import type { AppRuntimeInfo, AppUpdateStatus, LastSwitchResult, LocalDiagnosticsResult, ProfileInfo, ProfileUsageResult, SettingsReadStatus, TargetTool, UsageDisplayMode } from "../shared/types";
 
 interface ElapsedSuffixes {
   now: string;
@@ -87,6 +87,23 @@ export function describeAppUpdate(
     default:
       return { text: "自动检查更新已开启", tone: "muted" };
   }
+}
+
+export function describeSettingsRecovery(status?: SettingsReadStatus): { text: string; tone: "warning" | "error" } | undefined {
+  if (status === "recovered_from_backup") {
+    return {
+      tone: "warning",
+      text: "设置文件异常，已从备份恢复。请确认账号列表和偏好设置是否完整。"
+    };
+  }
+  if (status === "defaults_after_corruption") {
+    return {
+      tone: "error",
+      text: "设置文件和备份都无法读取，已使用默认设置。Antigravity 账号登记和界面偏好可能需要重新配置。"
+    };
+  }
+
+  return undefined;
 }
 
 export function shouldCompactAccountStatus(

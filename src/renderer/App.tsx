@@ -26,7 +26,7 @@ import { emptyResult, TOOL_LABELS } from "./constants";
 import { useOAuthLoginFlow } from "./hooks/useOAuthLoginFlow";
 import { refreshAfterOAuthLoginSave } from "./oauthLoginPostSave";
 import type { StatusMessage, StatusVisibility } from "./types";
-import { copyText, describeUsageFailure, getApi, getErrorMessage, getProfileDisplayName, getProfileKey, getVisibleLastSwitch, shouldShowAutoUpdateSetting } from "./utils";
+import { copyText, describeSettingsRecovery, describeUsageFailure, getApi, getErrorMessage, getProfileDisplayName, getProfileKey, getVisibleLastSwitch, shouldShowAutoUpdateSetting } from "./utils";
 
 export function App() {
   const [settings, setSettings] = useState<AppSettings>({ profilesRoot: "" });
@@ -182,6 +182,10 @@ export function App() {
         setUsageDisplayModeDraft(nextSettings.usageDisplayMode ?? "used");
         setUiThemeDraft(nextSettings.uiTheme ?? "classic");
         await loadProfiles(nextSelectedTool);
+        const settingsRecovery = describeSettingsRecovery(diagnostics?.settingsReadStatus);
+        if (mounted && settingsRecovery) {
+          setStatus(settingsRecovery);
+        }
       } catch (error) {
         if (mounted) {
           setStatus({ tone: "error", text: getErrorMessage(error) });

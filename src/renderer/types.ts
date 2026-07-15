@@ -1,4 +1,4 @@
-export type StatusTone = "idle" | "success" | "error";
+export type StatusTone = "idle" | "success" | "warning" | "error";
 export type StatusVisibility = "visible" | "fading" | "collapsed";
 
 export interface StatusMessage {

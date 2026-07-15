@@ -25,6 +25,7 @@ const api: GeminiSwitcherApi = {
     ipcRenderer.invoke("profiles:usage:refresh", profileIdentifier, targetTool),
   refreshAllUsage: (targetTool?: TargetTool) => ipcRenderer.invoke("profiles:usage:refreshAll", targetTool),
   getLocalDiagnostics: () => ipcRenderer.invoke("diagnostics:get"),
+  reportRendererFailure: () => ipcRenderer.invoke("diagnostics:rendererFailure"),
   selectDirectory: (defaultPath?: string) => ipcRenderer.invoke("path:selectDirectory", defaultPath),
   revealPath: (target: RevealTarget) => ipcRenderer.invoke("path:reveal", target)
 };

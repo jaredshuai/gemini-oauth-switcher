@@ -33,4 +33,17 @@ describe("systemDiagnostics", () => {
     expect(result.envRisks).toEqual([]);
     expect(result.geminiCommand).toEqual({ available: false });
   });
+
+  it("includes only the non-sensitive startup settings recovery state", async () => {
+    const result = await collectLocalDiagnostics({
+      env: {},
+      resolveGeminiCommand: async () => undefined,
+      settingsReadStatus: "recovered_from_backup",
+      now: () => 1
+    });
+
+    expect(result.settingsReadStatus).toBe("recovered_from_backup");
+    expect(result).not.toHaveProperty("settingsPath");
+    expect(result).not.toHaveProperty("settingsContents");
+  });
 });

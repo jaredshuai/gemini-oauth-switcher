@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import type { LocalDiagnosticsResult } from "../shared/types";
+import type { LocalDiagnosticsResult, SettingsReadStatus } from "../shared/types";
 
 const ENV_RISK_KEYS = [
   "GEMINI_CLI_HOME",
@@ -12,6 +12,7 @@ const ENV_RISK_KEYS = [
 interface CollectLocalDiagnosticsOptions {
   env?: Record<string, string | undefined>;
   resolveGeminiCommand?: () => Promise<string | undefined>;
+  settingsReadStatus?: SettingsReadStatus;
   now?: () => number;
 }
 
@@ -30,6 +31,7 @@ export async function collectLocalDiagnostics(options: CollectLocalDiagnosticsOp
       : {
           available: false
         },
+    ...(options.settingsReadStatus ? { settingsReadStatus: options.settingsReadStatus } : {}),
     checkedAt: options.now?.() ?? Date.now()
   };
 }

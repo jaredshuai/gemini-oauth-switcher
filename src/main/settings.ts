@@ -5,6 +5,7 @@ import type {
   AntigravityProfileRecord,
   AppSettings,
   LastSwitchResult,
+  SettingsReadStatus,
   TargetTool,
   TrayBehavior,
   UiTheme,
@@ -25,23 +26,56 @@ const MAX_PROFILE_NICKNAME_KEY_LENGTH = 255;
 const MAX_PROFILE_NICKNAME_LENGTH = 160;
 const saveQueues = new Map<string, Promise<AppSettings>>();
 
+export interface SettingsReadResult {
+  settings: AppSettings;
+  status: SettingsReadStatus;
+}
+
 export async function readSettings(settingsPath: string): Promise<AppSettings> {
+  return (await readSettingsWithStatus(settingsPath)).settings;
+}
+
+export async function readSettingsWithStatus(settingsPath: string): Promise<SettingsReadResult> {
   try {
-    return await readSettingsFile(settingsPath);
+    return {
+      settings: await readSettingsFile(settingsPath),
+      status: "loaded"
+    };
   } catch (error) {
     if (!isRecoverableReadError(error)) {
       throw error;
     }
 
     try {
-      return await readSettingsFile(`${settingsPath}.bak`);
+      return {
+        settings: await readSettingsFile(`${settingsPath}.bak`),
+        status: "recovered_from_backup"
+      };
     } catch (backupError) {
       if (!isRecoverableReadError(backupError)) {
         throw backupError;
       }
-      return { ...DEFAULT_SETTINGS };
+      return {
+        settings: { ...DEFAULT_SETTINGS },
+        status: isNotFoundError(error) && isNotFoundError(backupError)
+          ? "first_run"
+          : "defaults_after_corruption"
+      };
     }
   }
+}
+
+export async function repairSettingsFromBackup(
+  settingsPath: string,
+  result: SettingsReadResult
+): Promise<boolean> {
+  if (result.status !== "recovered_from_backup") {
+    return false;
+  }
+
+  await mkdir(path.dirname(settingsPath), { recursive: true });
+  await writeJsonAtomically(settingsPath, sanitizeSettings(result.settings));
+  return true;
 }
 
 export async function saveSettings(settingsPath: string, patch: Partial<AppSettings>): Promise<AppSettings> {
@@ -68,7 +102,11 @@ async function saveSettingsUnlocked(settingsPath: string, patch: Partial<AppSett
 
 async function readSettingsFile(filePath: string): Promise<AppSettings> {
   const raw = await readFile(filePath, "utf8");
-  return sanitizeSettings(JSON.parse(raw));
+  const parsed = JSON.parse(raw) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new SyntaxError("Settings root must be an object");
+  }
+  return sanitizeSettings(parsed);
 }
 
 async function writeJsonAtomically(filePath: string, settings: AppSettings): Promise<void> {

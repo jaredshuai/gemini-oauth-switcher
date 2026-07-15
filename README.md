@@ -59,6 +59,7 @@ pnpm pack:win
 pnpm dist:win
 pnpm dist:win:installer
 pnpm dist:win:portable
+pnpm verify:windows-artifacts
 ```
 
 ## 功能
@@ -146,6 +147,7 @@ agy
 - Gemini 用量查询会使用 OAuth 文件中的 token 调 Google 官方接口，但不会展示、打印或保存 token 内容。
 - Antigravity 用量查询会使用 Credential Manager 中的 token 调 Google 官方 quota 接口，token 仅在 main process 内存中使用。
 - Antigravity CLI 凭据由 Windows Credential Manager 保存；卸载应用不会自动删除用户的系统凭据。
+- 本地诊断日志位于 Electron `userData` 下的 `logs` 目录，只记录脱敏事件信息；最多保留 3 个约 256 KB 的轮转文件，不会无限增长。
 
 ## 打包
 
@@ -155,6 +157,7 @@ agy
 - `pnpm dist:win:portable` 只生成 portable exe。
 - 安装包按用户安装，不需要管理员权限；卸载时不会删除用户配置和账号目录。
 - 自动更新只支持 NSIS 安装版；portable 版需要手动下载新版本。
+- 正式发布前按 [Windows 发布冒烟检查](docs/release-smoke-test.md) 验证干净安装、覆盖升级、设置恢复和白屏兜底。
 
 ## 发布与自动更新
 

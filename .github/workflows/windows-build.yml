@@ -87,17 +87,8 @@ jobs:
           pnpm build
           pnpm exec electron-builder --win --publish never
 
-      - name: Verify release executables
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
-        run: |
-          $releaseExecutables = @(
-            Get-ChildItem -Path release -Filter 'Gemini-OAuth-Switcher-*-setup-x64.exe'
-            Get-ChildItem -Path release -Filter 'Gemini-OAuth-Switcher-*-portable-x64.exe'
-          )
-          if ($releaseExecutables.Count -ne 2) {
-            throw "Expected one installer and one portable executable, found $($releaseExecutables.Count)."
-          }
+      - name: Verify Windows release artifacts
+        run: pnpm verify:windows-artifacts
 
       - name: Verify release Authenticode signatures
         if: startsWith(github.ref, 'refs/tags/') && steps.signing.outputs.enabled == 'true'

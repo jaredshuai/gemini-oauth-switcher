@@ -3,7 +3,7 @@ import { tmpdir, homedir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { getAntigravityLoginRoot, getDefaultProfilesRoot, getDefaultTargetAntigravityCliSettingsPath } from "../src/main/paths";
-import { readSettings, saveSettings } from "../src/main/settings";
+import { readSettings, readSettingsWithStatus, repairSettingsFromBackup, saveSettings } from "../src/main/settings";
 import type { AppSettings } from "../src/shared/types";
 
 const tempRoots: string[] = [];
@@ -41,6 +41,17 @@ describe("settings defaults", () => {
 
     await expect(readSettings(path.join(root, "settings.json"))).resolves.toMatchObject({
       profilesRoot: getDefaultProfilesRoot()
+    });
+  });
+
+  it("distinguishes a clean first run from settings corruption", async () => {
+    const root = await makeTempRoot();
+
+    await expect(readSettingsWithStatus(path.join(root, "settings.json"))).resolves.toMatchObject({
+      status: "first_run",
+      settings: {
+        profilesRoot: getDefaultProfilesRoot()
+      }
     });
   });
 
@@ -294,6 +305,80 @@ describe("settings defaults", () => {
       antigravityProfiles: [{ id: "agy-recoverable" }]
     });
     await expect(readFile(`${settingsPath}.bak`, "utf8")).resolves.toContain("agy-recoverable");
+  });
+
+  it("reports when settings were recovered from the backup file", async () => {
+    const root = await makeTempRoot();
+    const settingsPath = path.join(root, "settings.json");
+
+    await saveSettings(settingsPath, {
+      selectedTool: "antigravity-cli",
+      antigravityProfiles: [{
+        id: "agy-recovered",
+        name: "recovered@example.com",
+        accountEmail: "recovered@example.com",
+        createdAt: 100,
+        updatedAt: 200
+      }]
+    });
+    await saveSettings(settingsPath, { trayBehavior: "minimize_to_tray" });
+    await writeFile(settingsPath, "{broken", "utf8");
+
+    await expect(readSettingsWithStatus(settingsPath)).resolves.toMatchObject({
+      status: "recovered_from_backup",
+      settings: {
+        selectedTool: "antigravity-cli",
+        antigravityProfiles: [{ id: "agy-recovered" }]
+      }
+    });
+  });
+
+  it("atomically repairs the primary settings file after backup recovery", async () => {
+    const root = await makeTempRoot();
+    const settingsPath = path.join(root, "settings.json");
+
+    await saveSettings(settingsPath, { selectedTool: "antigravity-cli" });
+    await saveSettings(settingsPath, { trayBehavior: "minimize_to_tray" });
+    await writeFile(settingsPath, "{broken", "utf8");
+    const recovered = await readSettingsWithStatus(settingsPath);
+
+    await expect(repairSettingsFromBackup(settingsPath, recovered)).resolves.toBe(true);
+    await expect(readSettingsWithStatus(settingsPath)).resolves.toMatchObject({
+      status: "loaded",
+      settings: {
+        selectedTool: "antigravity-cli"
+      }
+    });
+  });
+
+  it("reports when corrupt primary and backup settings require defaults", async () => {
+    const root = await makeTempRoot();
+    const settingsPath = path.join(root, "settings.json");
+
+    await writeFile(settingsPath, "{broken-primary", "utf8");
+    await writeFile(`${settingsPath}.bak`, "{broken-backup", "utf8");
+
+    await expect(readSettingsWithStatus(settingsPath)).resolves.toMatchObject({
+      status: "defaults_after_corruption",
+      settings: {
+        profilesRoot: getDefaultProfilesRoot(),
+        selectedTool: "gemini"
+      }
+    });
+  });
+
+  it("treats valid JSON with a non-object root as corrupted settings", async () => {
+    const root = await makeTempRoot();
+    const settingsPath = path.join(root, "settings.json");
+
+    await writeFile(settingsPath, "null", "utf8");
+
+    await expect(readSettingsWithStatus(settingsPath)).resolves.toMatchObject({
+      status: "defaults_after_corruption",
+      settings: {
+        profilesRoot: getDefaultProfilesRoot()
+      }
+    });
   });
 
   it("stores the last switch receipt without credential hashes", async () => {

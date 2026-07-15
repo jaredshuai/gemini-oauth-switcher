@@ -30,19 +30,24 @@ import {
   resolveCurrentAntigravityProfileIdentity,
   switchAntigravityProfile
 } from "./antigravityProfileService";
-import { readSettings, saveSettings } from "./settings";
+import { readSettings, readSettingsWithStatus, repairSettingsFromBackup, saveSettings } from "./settings";
 import { collectLocalDiagnostics } from "./systemDiagnostics";
+import { createStartupSettingsService } from "./startupSettingsService";
 import { createAutoUpdateManager, type AutoUpdateManager } from "./updateService";
 import { queryGeminiUsageFromOAuthFile } from "./usageService";
 import { queryAntigravityUsage, refreshAntigravityAccessToken } from "./antigravityUsageService";
 import { ensureWindowBoundsVisible, persistWindowBoundsBeforeClose, shouldHideWindowOnClose } from "./windowLifecycle";
 import { configureSingleInstance } from "./singleInstanceService";
+import { createDiagnosticLogger, type DiagnosticLogger } from "./diagnosticLogger";
+import { createProcessFailureHandlers, toDiagnosticErrorMetadata } from "./processFailureService";
+import { createRendererFailureController, createRendererFallbackPageUrl, isNavigationAbortError, type RendererFailure, type RendererRecoveryAction } from "./rendererFailureService";
 
 let mainWindow: BrowserWindow | undefined;
 let tray: Tray | undefined;
 let isQuitting = false;
 let trayBehavior: TrayBehavior = "exit";
 let autoUpdateManager: AutoUpdateManager | undefined;
+let diagnosticLogger: DiagnosticLogger | undefined;
 const oauthLoginSessions = new Map<string, OAuthLoginSession>();
 const settingsDependentOperations = createAsyncOperationQueue();
 
@@ -72,6 +77,25 @@ function applyWindowChromeTheme(settings: AppSettings): void {
 function settingsPath(): string {
   return getSettingsPath(app.getPath("userData"));
 }
+
+function getDiagnosticLogger(): DiagnosticLogger {
+  diagnosticLogger ??= createDiagnosticLogger({
+    directory: path.join(app.getPath("userData"), "logs")
+  });
+  return diagnosticLogger;
+}
+
+function logDiagnosticError(event: string, error: unknown): void {
+  void getDiagnosticLogger().error(event, toDiagnosticErrorMetadata(error)).catch(() => undefined);
+}
+
+function logDiagnosticWarning(event: string, error: unknown): void {
+  void getDiagnosticLogger().warn(event, toDiagnosticErrorMetadata(error)).catch(() => undefined);
+}
+
+const startupSettingsService = createStartupSettingsService({
+  readSettings: () => readSettingsWithStatus(settingsPath())
+});
 
 function getAppIconPath(): string | undefined {
   const appIconPath = path.join(app.getAppPath(), "assets", "app-icon.ico");
@@ -260,15 +284,19 @@ function normalizeRevealTarget(value: unknown): RevealTarget {
 }
 
 function logWindowClosePersistenceError(error: unknown): void {
-  console.error("Failed to save window bounds before closing.", error);
+  logDiagnosticError("window.bounds_save_failed", error);
 }
 
 function logStaleLoginCleanupResult(result: { failed: string[]; skipped: string[] }): void {
   if (result.failed.length > 0) {
-    console.warn("Failed to clean stale OAuth login entries.", result.failed);
+    void getDiagnosticLogger().warn("oauth_login.cleanup_failed", {
+      failedCount: result.failed.length
+    }).catch(() => undefined);
   }
   if (result.skipped.length > 0) {
-    console.warn("Skipped suspicious OAuth login entries during cleanup.", result.skipped);
+    void getDiagnosticLogger().warn("oauth_login.cleanup_skipped", {
+      skippedCount: result.skipped.length
+    }).catch(() => undefined);
   }
 }
 
@@ -292,24 +320,53 @@ function syncAutoUpdateSetting(settings: AppSettings): void {
       isQuitting = true;
     },
     onStatusChange: broadcastUpdateStatus,
-    logWarning: (message, error) => {
-      console.warn(message, error);
-    }
+    logWarning: (_message, error) => logDiagnosticWarning("update.warning", error)
   });
 
   void autoUpdateManager.setEnabled(settings.autoUpdateEnabled !== false).catch((error: unknown) => {
-    console.warn("Failed to update automatic update settings.", error);
+    logDiagnosticWarning("update.settings_sync_failed", error);
   });
 }
 
-async function createWindow(): Promise<void> {
-  const settings = await readSettings(settingsPath());
+async function loadRenderer(window: BrowserWindow): Promise<void> {
+  if (isDev && process.env.VITE_DEV_SERVER_URL) {
+    await window.loadURL(process.env.VITE_DEV_SERVER_URL);
+    return;
+  }
+
+  await window.loadFile(path.join(__dirname, "../../dist/index.html"));
+}
+
+async function showRendererRecoveryPrompt(
+  window: BrowserWindow,
+  failure: RendererFailure
+): Promise<RendererRecoveryAction> {
+  const result = await dialog.showMessageBox(window, {
+    type: "error",
+    title: "界面需要恢复",
+    message: failure.kind === "load" ? "应用界面加载失败。" : "应用界面进程意外退出。",
+    detail: "账号凭据没有被修改。你可以重新加载界面，或打开诊断目录查看故障信息。",
+    buttons: ["重新加载", "打开诊断目录", "退出应用"],
+    defaultId: 0,
+    cancelId: 2,
+    noLink: true
+  });
+
+  return result.response === 0
+    ? "retry"
+    : result.response === 1
+      ? "open_diagnostics"
+      : "exit";
+}
+
+async function createWindow(initialSettings?: AppSettings): Promise<void> {
+  const settings = initialSettings ?? await readSettings(settingsPath());
   const savedBounds = settings.windowBounds ?? { width: 1040, height: 760 };
   const bounds = ensureWindowBoundsVisible(savedBounds, screen.getAllDisplays().map((display) => display.workArea));
   const windowChromeTheme = getWindowChromeTheme(settings.uiTheme);
   trayBehavior = settings.trayBehavior ?? "exit";
 
-  mainWindow = new BrowserWindow({
+  const createdWindow = new BrowserWindow({
     ...bounds,
     minWidth: 860,
     minHeight: 560,
@@ -332,18 +389,68 @@ async function createWindow(): Promise<void> {
       sandbox: true
     }
   });
-  mainWindow.setMenuBarVisibility(false);
+  mainWindow = createdWindow;
+  createdWindow.setMenuBarVisibility(false);
 
-  mainWindow.once("ready-to-show", () => {
-    mainWindow?.show();
+  const rendererFailureController = createRendererFailureController({
+    reportFailure: (failure) => getDiagnosticLogger().error(
+      failure.kind === "load" ? "renderer.load_failed" : "renderer.process_gone",
+      failure
+    ),
+    renderFallback: async (failure) => {
+      if (createdWindow.isDestroyed()) {
+        return;
+      }
+      await createdWindow.loadURL(createRendererFallbackPageUrl(failure.kind));
+      createdWindow.show();
+    },
+    showRecoveryPrompt: (failure) => showRendererRecoveryPrompt(createdWindow, failure),
+    reloadRenderer: () => {
+      setTimeout(() => {
+        if (!createdWindow.isDestroyed()) {
+          void loadRenderer(createdWindow).catch((error: unknown) => {
+            if (!isNavigationAbortError(error)) {
+              logDiagnosticError("renderer.reload_rejected", error);
+            }
+          });
+        }
+      }, 0);
+    },
+    openDiagnosticsDirectory: async () => {
+      const logger = getDiagnosticLogger();
+      await logger.info("diagnostics.directory_opened");
+      await openResolvedPath(logger.directory);
+    },
+    quit: () => {
+      isQuitting = true;
+      app.quit();
+    }
   });
 
-  mainWindow.on("close", (event) => {
-    const closingWindow = mainWindow;
-    if (!closingWindow) {
-      return;
-    }
+  createdWindow.webContents.on("did-fail-load", (_event, errorCode, _errorDescription, _validatedUrl, isMainFrame) => {
+    void rendererFailureController.handleLoadFailure({
+      errorCode,
+      isMainFrame: Boolean(isMainFrame)
+    }).catch((error: unknown) => {
+      logDiagnosticError("renderer.load_recovery_failed", error);
+    });
+  });
 
+  createdWindow.webContents.on("render-process-gone", (_event, details) => {
+    void rendererFailureController.handleRenderProcessGone({
+      reason: details.reason,
+      exitCode: details.exitCode,
+      isQuitting
+    }).catch((error: unknown) => {
+      logDiagnosticError("renderer.process_recovery_failed", error);
+    });
+  });
+
+  createdWindow.once("ready-to-show", () => {
+    createdWindow.show();
+  });
+
+  createdWindow.on("close", (event) => {
     const hideOnClose = shouldHideWindowOnClose({
       isQuitting,
       trayBehavior,
@@ -351,21 +458,23 @@ async function createWindow(): Promise<void> {
     });
     event.preventDefault();
     void persistWindowBoundsBeforeClose({
-      window: closingWindow,
+      window: createdWindow,
       hideOnClose,
       saveWindowBounds: (windowBounds) => saveSettings(settingsPath(), { windowBounds })
     }).catch(logWindowClosePersistenceError);
   });
 
-  mainWindow.on("closed", () => {
-    mainWindow = undefined;
+  createdWindow.on("closed", () => {
+    if (mainWindow === createdWindow) {
+      mainWindow = undefined;
+    }
   });
 
-  if (isDev && process.env.VITE_DEV_SERVER_URL) {
-    await mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
-  } else {
-    await mainWindow.loadFile(path.join(__dirname, "../../dist/index.html"));
-  }
+  await loadRenderer(createdWindow).catch((error: unknown) => {
+    if (!isNavigationAbortError(error)) {
+      logDiagnosticError("renderer.initial_navigation_rejected", error);
+    }
+  });
 }
 
 function registerIpcHandlers(): void {
@@ -625,7 +734,12 @@ function registerIpcHandlers(): void {
     return Object.fromEntries(usages);
   });
 
-  ipcMain.handle("diagnostics:get", async () => collectLocalDiagnostics());
+  ipcMain.handle("diagnostics:get", async () => collectLocalDiagnostics({
+    settingsReadStatus: startupSettingsService.getReadStatus()
+  }));
+  ipcMain.handle("diagnostics:rendererFailure", async () => {
+    await getDiagnosticLogger().error("renderer.react_error_boundary");
+  });
 
   ipcMain.handle("oauthLogin:start", async (_event, rawTargetTool?: unknown) => {
     const settings = await readSettings(settingsPath());
@@ -835,18 +949,54 @@ const isPrimaryInstance = configureSingleInstance({
   },
   showMainWindow,
   onShowError: (error) => {
-    console.warn("Failed to restore the primary window.", error);
+    logDiagnosticWarning("window.restore_failed", error);
   }
 });
 
 if (isPrimaryInstance) {
+  const processFailureHandlers = createProcessFailureHandlers({
+    logError: (event, metadata) => getDiagnosticLogger().error(event, metadata),
+    logWarning: (event, metadata) => getDiagnosticLogger().warn(event, metadata),
+    showFatalError: () => {
+      dialog.showErrorBox(
+        "应用发生严重错误",
+        "诊断信息已写入本地日志。应用将退出，请重新打开后再试。"
+      );
+    },
+    exit: (code) => {
+      isQuitting = true;
+      app.exit(code);
+    }
+  });
+
+  process.on("uncaughtException", (error) => {
+    void processFailureHandlers.handleUncaughtException(error);
+  });
+  process.on("unhandledRejection", (reason) => {
+    void processFailureHandlers.handleUnhandledRejection(reason);
+  });
+
   app.setAppUserModelId("local.gemini-oauth-switcher");
   Menu.setApplicationMenu(null);
   registerIpcHandlers();
 
   void app.whenReady().then(async () => {
+    await getDiagnosticLogger().info("app.started", {
+      version: app.getVersion(),
+      packaged: app.isPackaged,
+      portable: Boolean(process.env.PORTABLE_EXECUTABLE_DIR)
+    }).catch(() => undefined);
     createTray();
-    const settings = await readSettings(settingsPath());
+    const settings = await startupSettingsService.load();
+    const settingsReadStatus = startupSettingsService.getReadStatus();
+    if (settingsReadStatus === "recovered_from_backup") {
+      await repairSettingsFromBackup(settingsPath(), {
+        settings,
+        status: settingsReadStatus
+      }).catch((error: unknown) => {
+        logDiagnosticWarning("settings.primary_repair_failed", error);
+      });
+    }
     const profilesRoot = getConfiguredProfilesRoot(settings);
     const antigravityTarget = getProfileTargetConfig("antigravity-cli");
     for (const loginRoot of [profilesRoot, getAntigravityLoginRoot(app.getPath("temp"))]) {
@@ -857,26 +1007,34 @@ if (isPrimaryInstance) {
       })
         .then(logStaleLoginCleanupResult)
         .catch((error: unknown) => {
-          console.warn("Failed to run stale OAuth login cleanup.", error);
+          logDiagnosticWarning("oauth_login.cleanup_run_failed", error);
         });
     }
     await cleanupStaleProfileRegistrations({ profilesRoot })
       .then((result) => {
         if (result.removed.length || result.failed.length || result.skipped.length) {
-          console.info("Stale profile registration cleanup completed.", result);
+          void getDiagnosticLogger().info("profile_registration.cleanup_completed", {
+            removedCount: result.removed.length,
+            failedCount: result.failed.length,
+            skippedCount: result.skipped.length
+          }).catch(() => undefined);
         }
       })
       .catch((error: unknown) => {
-        console.warn("Failed to run stale profile registration cleanup.", error);
+        logDiagnosticWarning("profile_registration.cleanup_run_failed", error);
       });
-    await createWindow();
+    await createWindow(settings);
     syncAutoUpdateSetting(settings);
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
-        void createWindow();
+        void createWindow().catch((error: unknown) => {
+          logDiagnosticError("window.create_failed", error);
+        });
       }
     });
+  }).catch((error: unknown) => {
+    void processFailureHandlers.handleUncaughtException(error);
   });
 
   app.on("before-quit", () => {
