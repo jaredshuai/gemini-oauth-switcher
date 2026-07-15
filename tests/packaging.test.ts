@@ -63,22 +63,33 @@ describe("packaged renderer config", () => {
     const workflow = readFileSync(path.join(process.cwd(), ".github", "workflows", "windows-build.yml"), "utf8");
     const verifyIndex = workflow.indexOf("Verify Windows release artifacts");
     const smokeIndex = workflow.indexOf("Smoke test NSIS installer lifecycle");
+    const cleanupIndex = workflow.indexOf("Cleanup NSIS smoke directory");
     const uploadIndex = workflow.indexOf("Upload build artifacts");
     const releaseIndex = workflow.indexOf("Create GitHub Release");
 
     expect(verifyIndex).toBeGreaterThanOrEqual(0);
     expect(smokeIndex).toBeGreaterThan(verifyIndex);
-    expect(uploadIndex).toBeGreaterThan(smokeIndex);
-    expect(releaseIndex).toBeGreaterThan(smokeIndex);
+    expect(cleanupIndex).toBeGreaterThan(smokeIndex);
+    expect(uploadIndex).toBeGreaterThan(cleanupIndex);
+    expect(releaseIndex).toBeGreaterThan(cleanupIndex);
     expect(workflow).toContain("./scripts/smoke-test-windows-installer.ps1");
     expect(workflow).toContain("Custom Install With Spaces");
-    const smokeBlock = workflow.slice(smokeIndex, uploadIndex);
-    const scriptInvocationIndex = smokeBlock.indexOf("& ./scripts/smoke-test-windows-installer.ps1");
-    const temporaryRootRemovalIndex = smokeBlock.indexOf("Remove-Item -LiteralPath $temporaryRoot -Force");
+    expect(workflow).toContain("$expectedDefaultInstallDirectory = Join-Path $env:LOCALAPPDATA 'Programs\\Gemini OAuth Switcher'");
+    expect(workflow).toContain("-ExpectedDefaultInstallDirectory $expectedDefaultInstallDirectory");
+
+    const smokeBlock = workflow.slice(smokeIndex, cleanupIndex);
+    const cleanupBlock = workflow.slice(cleanupIndex, uploadIndex);
 
     expect(smokeBlock).not.toContain("finally");
-    expect(smokeBlock).not.toContain("Remove-Item -LiteralPath $temporaryRoot -Recurse");
-    expect(temporaryRootRemovalIndex).toBeGreaterThan(scriptInvocationIndex);
+    expect(smokeBlock).not.toContain("Remove-Item -LiteralPath $temporaryRoot");
+    expect(smokeBlock).toContain("NSIS_SMOKE_TEMPORARY_ROOT=$temporaryRoot");
+    expect(smokeBlock).toContain("$env:GITHUB_ENV");
+    expect(cleanupBlock).toContain("if: always()");
+    expect(cleanupBlock).toContain("$env:NSIS_SMOKE_TEMPORARY_ROOT");
+    expect(cleanupBlock).toContain("$env:RUNNER_TEMP");
+    expect(cleanupBlock).toContain("strict descendant");
+    expect(cleanupBlock).toContain("[System.IO.FileAttributes]::ReparsePoint");
+    expect(cleanupBlock).not.toContain("Remove-Item -LiteralPath $temporaryRoot -Recurse");
 
     const script = readFileSync(path.join(process.cwd(), "scripts", "smoke-test-windows-installer.ps1"), "utf8");
 
@@ -86,7 +97,10 @@ describe("packaged renderer config", () => {
     expect(script).toContain("ProcessTimeoutSeconds = 120");
     expect(script).toContain("ExpectedDefaultInstallDirectory");
     expect(script).toContain("function Get-ExistingItem");
-    expect(script).toContain("Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue");
+    expect(script).toContain("Get-Item -LiteralPath $Path -Force -ErrorAction Stop");
+    expect(script).toContain("ItemNotFoundException");
+    expect(script).toContain("Unable to inspect path");
+    expect(script).not.toContain("Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue");
     expect(script).toContain("Assert-PathAncestorsHaveNoReparsePoints");
     expect(script).toContain("function Invoke-BoundedProcess");
     expect(script).toContain(".WaitForExit(");
@@ -138,6 +152,21 @@ describe("packaged renderer config", () => {
         temporaryRoot,
         installDirectory: path.join(temporaryRoot, "Install")
       })).toThrow(`Installer does not exist: ${installerPath}`);
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(process.platform === "win32")("fails closed when an installer path cannot be inspected", () => {
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), "gemini-switcher-inspection-error-"));
+    const installerPath = `MissingProvider${randomUUID().replace(/-/g, "")}::installer.exe`;
+
+    try {
+      expect(() => invokeInstallerSmoke({
+        installerPath,
+        temporaryRoot,
+        installDirectory: path.join(temporaryRoot, "Install")
+      })).toThrow(`Unable to inspect path '${installerPath}'`);
     } finally {
       rmSync(temporaryRoot, { recursive: true, force: true });
     }

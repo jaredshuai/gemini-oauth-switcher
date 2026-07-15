@@ -41,7 +41,19 @@ function Get-ExistingItem {
     [string]$Path
   )
 
-  return Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+  try {
+    return Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+  } catch [System.Management.Automation.ItemNotFoundException] {
+    return $null
+  } catch {
+    $isConfirmedPathNotFound = $_.FullyQualifiedErrorId -like "PathNotFound,*" -or
+      $_.CategoryInfo.Reason -eq "ItemNotFoundException"
+    if ($isConfirmedPathNotFound) {
+      return $null
+    }
+
+    throw "Unable to inspect path '$Path': $($_.Exception.Message)"
+  }
 }
 
 function Get-CanonicalExistingFile {

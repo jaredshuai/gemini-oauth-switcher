@@ -100,10 +100,111 @@ jobs:
 
           $temporaryRoot = Join-Path $env:RUNNER_TEMP "gemini-oauth-switcher-installer-smoke-$([guid]::NewGuid().ToString('N'))"
           $installDirectory = Join-Path $temporaryRoot "Custom Install With Spaces"
+          $expectedDefaultInstallDirectory = Join-Path $env:LOCALAPPDATA 'Programs\Gemini OAuth Switcher'
           New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
+          "NSIS_SMOKE_TEMPORARY_ROOT=$temporaryRoot" >> $env:GITHUB_ENV
 
-          & ./scripts/smoke-test-windows-installer.ps1 -InstallerPath $installers[0].FullName -TemporaryRoot $temporaryRoot -InstallDirectory $installDirectory
-          Remove-Item -LiteralPath $temporaryRoot -Force
+          & ./scripts/smoke-test-windows-installer.ps1 -InstallerPath $installers[0].FullName -TemporaryRoot $temporaryRoot -InstallDirectory $installDirectory -ExpectedDefaultInstallDirectory $expectedDefaultInstallDirectory
+
+      - name: Cleanup NSIS smoke directory
+        if: always()
+        shell: pwsh
+        run: |
+          function Get-CleanupItem {
+            param([Parameter(Mandatory = $true)][string]$Path)
+
+            try {
+              return Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+            } catch [System.Management.Automation.ItemNotFoundException] {
+              return $null
+            } catch {
+              throw "Unable to inspect cleanup path '$Path': $($_.Exception.Message)"
+            }
+          }
+
+          function Test-CleanupReparsePoint {
+            param([Parameter(Mandatory = $true)][System.IO.FileSystemInfo]$Item)
+            return ($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0
+          }
+
+          function Remove-CleanupLinkOnly {
+            param([Parameter(Mandatory = $true)][System.IO.FileSystemInfo]$Item)
+
+            if ($Item.PSIsContainer) {
+              [System.IO.Directory]::Delete($Item.FullName, $false)
+            } else {
+              [System.IO.File]::Delete($Item.FullName)
+            }
+          }
+
+          function Remove-CleanupPathSafely {
+            param([Parameter(Mandatory = $true)][string]$Path)
+
+            $item = Get-CleanupItem -Path $Path
+            if ($null -eq $item) {
+              return
+            }
+
+            if (Test-CleanupReparsePoint -Item $item) {
+              Write-Warning "Removing cleanup reparse point without traversing it: $($item.FullName)"
+              Remove-CleanupLinkOnly -Item $item
+              return
+            }
+
+            if (-not $item.PSIsContainer) {
+              [System.IO.File]::Delete($item.FullName)
+              return
+            }
+
+            foreach ($child in @(Get-ChildItem -LiteralPath $item.FullName -Force -ErrorAction Stop)) {
+              Remove-CleanupPathSafely -Path $child.FullName
+            }
+            [System.IO.Directory]::Delete($item.FullName, $false)
+          }
+
+          if ([string]::IsNullOrWhiteSpace($env:NSIS_SMOKE_TEMPORARY_ROOT)) {
+            Write-Host "NSIS smoke directory was not created; nothing to clean."
+            exit 0
+          }
+          if ([string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
+            throw "RUNNER_TEMP is unavailable; refusing NSIS smoke cleanup."
+          }
+
+          $runnerTemp = [System.IO.Path]::TrimEndingDirectorySeparator([System.IO.Path]::GetFullPath($env:RUNNER_TEMP))
+          $temporaryRoot = [System.IO.Path]::TrimEndingDirectorySeparator([System.IO.Path]::GetFullPath($env:NSIS_SMOKE_TEMPORARY_ROOT))
+          $separator = [string][System.IO.Path]::DirectorySeparatorChar
+          $runnerPrefix = if ($runnerTemp.EndsWith($separator)) { $runnerTemp } else { "$runnerTemp$separator" }
+          $isStrictDescendant = -not [string]::Equals($temporaryRoot, $runnerTemp, [System.StringComparison]::OrdinalIgnoreCase) -and
+            $temporaryRoot.StartsWith($runnerPrefix, [System.StringComparison]::OrdinalIgnoreCase)
+          if (-not $isStrictDescendant) {
+            throw "NSIS smoke cleanup target must be a strict descendant of RUNNER_TEMP: $temporaryRoot"
+          }
+
+          $runnerItem = Get-CleanupItem -Path $runnerTemp
+          if ($null -eq $runnerItem -or -not $runnerItem.PSIsContainer -or (Test-CleanupReparsePoint -Item $runnerItem)) {
+            throw "RUNNER_TEMP is missing, not a directory, or a reparse point; refusing cleanup: $runnerTemp"
+          }
+
+          $relativePath = [System.IO.Path]::GetRelativePath($runnerTemp, $temporaryRoot)
+          $currentPath = $runnerTemp
+          foreach ($segment in @($relativePath -split '[\\/]' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ne '.' })) {
+            $currentPath = Join-Path -Path $currentPath -ChildPath $segment
+            $item = Get-CleanupItem -Path $currentPath
+            if ($null -eq $item) {
+              Write-Host "NSIS smoke cleanup target is already absent: $temporaryRoot"
+              exit 0
+            }
+            if (Test-CleanupReparsePoint -Item $item) {
+              if ([string]::Equals($currentPath, $temporaryRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+                Write-Warning "Removing NSIS smoke root link without traversing it: $temporaryRoot"
+                Remove-CleanupLinkOnly -Item $item
+                exit 0
+              }
+              throw "NSIS smoke cleanup ancestor is a reparse point; refusing traversal: $currentPath"
+            }
+          }
+
+          Remove-CleanupPathSafely -Path $temporaryRoot
 
       - name: Verify release Authenticode signatures
         if: startsWith(github.ref, 'refs/tags/') && steps.signing.outputs.enabled == 'true'
