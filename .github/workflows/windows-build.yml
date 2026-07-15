@@ -103,6 +103,7 @@ jobs:
           New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
 
           & ./scripts/smoke-test-windows-installer.ps1 -InstallerPath $installers[0].FullName -TemporaryRoot $temporaryRoot -InstallDirectory $installDirectory
+          Remove-Item -LiteralPath $temporaryRoot -Force
 
       - name: Verify release Authenticode signatures
         if: startsWith(github.ref, 'refs/tags/') && steps.signing.outputs.enabled == 'true'
