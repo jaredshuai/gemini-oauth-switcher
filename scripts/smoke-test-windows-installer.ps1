@@ -22,7 +22,10 @@ param(
   [string]$UninstallerName = "Uninstall Gemini OAuth Switcher.exe",
 
   [ValidateNotNullOrEmpty()]
-  [string]$ShortcutName = "Gemini OAuth Switcher"
+  [string]$ShortcutName = "Gemini OAuth Switcher",
+
+  [ValidateRange(1, 2147483)]
+  [int]$ProcessTimeoutSeconds = 120
 )
 
 Set-StrictMode -Version Latest
@@ -33,6 +36,10 @@ function Get-CanonicalExistingFile {
     [Parameter(Mandatory = $true)]
     [string]$Path
   )
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Any)) {
+    throw "File does not exist: $Path"
+  }
 
   $item = Get-Item -LiteralPath $Path -Force
   if ($item.PSIsContainer) {
@@ -49,13 +56,16 @@ function Get-CanonicalExistingDirectory {
     [string]$Path
   )
 
+  if (-not (Test-Path -LiteralPath $Path -PathType Any)) {
+    throw "Directory does not exist: $Path"
+  }
+
   $item = Get-Item -LiteralPath $Path -Force
   if (-not $item.PSIsContainer) {
     throw "Expected a directory but found a file: $Path"
   }
 
-  $resolved = Resolve-Path -LiteralPath $item.FullName
-  $fullPath = [System.IO.Path]::GetFullPath($resolved.ProviderPath)
+  $fullPath = [System.IO.Path]::GetFullPath($item.FullName)
   return [System.IO.Path]::TrimEndingDirectorySeparator($fullPath)
 }
 
@@ -89,6 +99,123 @@ function Test-StrictDescendant {
   return $candidatePath.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)
 }
 
+function Test-IsReparsePoint {
+  param(
+    [Parameter(Mandatory = $true)]
+    [System.IO.FileSystemInfo]$Item
+  )
+
+  return ($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0
+}
+
+function Assert-InstallPathHasNoReparsePoints {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Root,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Candidate
+  )
+
+  $relativePath = [System.IO.Path]::GetRelativePath($Root, $Candidate)
+  $segments = @($relativePath -split '[\\/]' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ne "." })
+  $currentPath = $Root
+
+  foreach ($segment in $segments) {
+    $currentPath = Join-Path -Path $currentPath -ChildPath $segment
+    if (-not (Test-Path -LiteralPath $currentPath -PathType Any)) {
+      break
+    }
+
+    $item = Get-Item -LiteralPath $currentPath -Force
+    if (Test-IsReparsePoint -Item $item) {
+      throw "Install path component is a reparse point: $currentPath"
+    }
+
+    if (-not $item.PSIsContainer) {
+      throw "Install path component is not a directory: $currentPath"
+    }
+  }
+}
+
+function Remove-ReparsePoint {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  $item = Get-Item -LiteralPath $Path -Force
+  if (-not (Test-IsReparsePoint -Item $item)) {
+    throw "Refusing link-only removal for a non-reparse path: $Path"
+  }
+
+  if ($item.PSIsContainer) {
+    [System.IO.Directory]::Delete($item.FullName, $false)
+  } else {
+    [System.IO.File]::Delete($item.FullName)
+  }
+}
+
+function Remove-DirectoryTreeWithoutFollowingReparsePoints {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  $item = Get-Item -LiteralPath $Path -Force
+  if (Test-IsReparsePoint -Item $item) {
+    Remove-ReparsePoint -Path $item.FullName
+    return
+  }
+
+  if (-not $item.PSIsContainer) {
+    Remove-Item -LiteralPath $item.FullName -Force
+    return
+  }
+
+  foreach ($child in @(Get-ChildItem -LiteralPath $item.FullName -Force)) {
+    if (Test-IsReparsePoint -Item $child) {
+      Remove-ReparsePoint -Path $child.FullName
+    } elseif ($child.PSIsContainer) {
+      Remove-DirectoryTreeWithoutFollowingReparsePoints -Path $child.FullName
+    } else {
+      Remove-Item -LiteralPath $child.FullName -Force
+    }
+  }
+
+  [System.IO.Directory]::Delete($item.FullName, $false)
+}
+
+function Invoke-BoundedProcess {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$FilePath,
+
+    [Parameter(Mandatory = $true)]
+    [AllowEmptyCollection()]
+    [string[]]$ArgumentList,
+
+    [Parameter(Mandatory = $true)]
+    [ValidateRange(1, 2147483)]
+    [int]$TimeoutSeconds,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ProcessName
+  )
+
+  $process = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -WindowStyle Hidden -PassThru
+  $timeoutMilliseconds = [int]([long]$TimeoutSeconds * 1000)
+  if (-not $process.WaitForExit($timeoutMilliseconds)) {
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    [void]$process.WaitForExit(5000)
+    throw "$ProcessName timed out after $TimeoutSeconds seconds: $FilePath"
+  }
+
+  if ($process.ExitCode -ne 0) {
+    throw "$ProcessName exited with code $($process.ExitCode)."
+  }
+}
+
 function Get-MatchingUninstallEntries {
   param(
     [Parameter(Mandatory = $true)]
@@ -108,8 +235,8 @@ function Get-MatchingUninstallEntries {
     }
 
     $displayName = [string]$displayNameProperty.Value
-    $isMatch = [string]::Equals($displayName, $ExpectedProductName, [System.StringComparison]::Ordinal) -or
-      $displayName.StartsWith("$ExpectedProductName ", [System.StringComparison]::Ordinal)
+    $isMatch = [string]::Equals($displayName, $ExpectedProductName, [System.StringComparison]::OrdinalIgnoreCase) -or
+      $displayName.StartsWith("$ExpectedProductName ", [System.StringComparison]::OrdinalIgnoreCase)
     if (-not $isMatch) {
       continue
     }
@@ -129,6 +256,7 @@ function Get-NewMatchingUninstallEntries {
     [string]$ExpectedProductName,
 
     [Parameter(Mandatory = $true)]
+    [AllowEmptyCollection()]
     [System.Collections.Generic.HashSet[string]]$PreexistingPaths
   )
 
@@ -162,19 +290,54 @@ $expectedExecutablePath = $null
 $expectedUninstallerPath = $null
 $desktopShortcutPath = $null
 $programsShortcutPath = $null
+$LikelyDefaultInstallDirectory = $null
 $ActualInstallDirectory = $null
 
 try {
+  if (-not (Test-Path -LiteralPath $InstallerPath -PathType Any)) {
+    throw "Installer does not exist: $InstallerPath"
+  }
+
+  $installerItem = Get-Item -LiteralPath $InstallerPath -Force
+  if ($installerItem.PSIsContainer) {
+    throw "Installer is not a file: $InstallerPath"
+  }
   $InstallerPath = Get-CanonicalExistingFile -Path $InstallerPath
+
+  if (-not (Test-Path -LiteralPath $TemporaryRoot -PathType Any)) {
+    throw "TemporaryRoot does not exist: $TemporaryRoot"
+  }
+
+  $temporaryRootItem = Get-Item -LiteralPath $TemporaryRoot -Force
+  if (Test-IsReparsePoint -Item $temporaryRootItem) {
+    throw "TemporaryRoot must not be a reparse point: $TemporaryRoot"
+  }
+
+  if (-not $temporaryRootItem.PSIsContainer) {
+    throw "TemporaryRoot is not a directory: $TemporaryRoot"
+  }
+
   $TemporaryRoot = Get-CanonicalExistingDirectory -Path $TemporaryRoot
   $InstallDirectory = Get-CanonicalDirectoryPath -Path $InstallDirectory
 
-  if (Test-Path -LiteralPath $InstallDirectory) {
+  if (Test-Path -LiteralPath $InstallDirectory -PathType Any) {
     throw "Install directory already exists: $InstallDirectory"
   }
 
   if (-not (Test-StrictDescendant -Candidate $InstallDirectory -Root $TemporaryRoot)) {
     throw "Install directory must be a strict descendant of TemporaryRoot: $InstallDirectory"
+  }
+
+  Assert-InstallPathHasNoReparsePoints -Root $TemporaryRoot -Candidate $InstallDirectory
+
+  if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+    throw "LOCALAPPDATA is not available for the current user."
+  }
+
+  $localProgramsDirectory = Join-Path -Path $env:LOCALAPPDATA -ChildPath "Programs"
+  $LikelyDefaultInstallDirectory = Get-CanonicalDirectoryPath -Path (Join-Path -Path $localProgramsDirectory -ChildPath $ProductName)
+  if (Test-Path -LiteralPath $LikelyDefaultInstallDirectory -PathType Any) {
+    throw "Likely default install directory already exists: $LikelyDefaultInstallDirectory"
   }
 
   $desktopDirectory = [Environment]::GetFolderPath("Desktop")
@@ -195,22 +358,24 @@ try {
     throw "A matching uninstall entry already exists for ProductName '$ProductName'."
   }
 
-  if (Test-Path -LiteralPath $desktopShortcutPath) {
+  if (Test-Path -LiteralPath $desktopShortcutPath -PathType Any) {
     throw "Desktop shortcut already exists: $desktopShortcutPath"
   }
 
-  if (Test-Path -LiteralPath $programsShortcutPath) {
+  if (Test-Path -LiteralPath $programsShortcutPath -PathType Any) {
     throw "Programs shortcut already exists: $programsShortcutPath"
   }
 
   $expectedExecutablePath = Join-Path -Path $InstallDirectory -ChildPath $ExecutableName
   $expectedUninstallerPath = Join-Path -Path $InstallDirectory -ChildPath $UninstallerName
 
-  $installationStarted = $true
-  $installProcess = Start-Process -FilePath $InstallerPath -ArgumentList @("/S", "/D=$InstallDirectory") -WindowStyle Hidden -Wait -PassThru
-  if ($installProcess.ExitCode -ne 0) {
-    throw "Installer exited with code $($installProcess.ExitCode)."
+  if (Test-Path -LiteralPath $InstallDirectory -PathType Any) {
+    throw "Install directory appeared before installer launch: $InstallDirectory"
   }
+  Assert-InstallPathHasNoReparsePoints -Root $TemporaryRoot -Candidate $InstallDirectory
+
+  $installationStarted = $true
+  Invoke-BoundedProcess -FilePath $InstallerPath -ArgumentList @('/S', "/D=$InstallDirectory") -TimeoutSeconds $ProcessTimeoutSeconds -ProcessName "Installer"
 
   $installDeadline = [DateTime]::UtcNow.AddSeconds(30)
   do {
@@ -283,10 +448,11 @@ try {
       [void]$cleanupFailures.Add("Could not query new uninstall entries during cleanup: $($_.Exception.Message)")
     }
 
-    $hasInstallArtifacts = (Test-Path -LiteralPath $InstallDirectory) -or
+    $hasInstallArtifacts = (Test-Path -LiteralPath $InstallDirectory -PathType Any) -or
+      ($null -ne $LikelyDefaultInstallDirectory -and (Test-Path -LiteralPath $LikelyDefaultInstallDirectory -PathType Any)) -or
       ($latestNewEntries.Count -gt 0) -or
-      (Test-Path -LiteralPath $desktopShortcutPath) -or
-      (Test-Path -LiteralPath $programsShortcutPath)
+      (Test-Path -LiteralPath $desktopShortcutPath -PathType Any) -or
+      (Test-Path -LiteralPath $programsShortcutPath -PathType Any)
     $CleanupUninstallerPath = $null
 
     if ($null -ne $expectedUninstallerPath -and (Test-Path -LiteralPath $expectedUninstallerPath -PathType Leaf)) {
@@ -311,48 +477,47 @@ try {
       }
     }
 
+    $uninstallAttempted = $false
     if ($null -ne $CleanupUninstallerPath) {
       $ActualInstallDirectory = Get-CanonicalDirectoryPath -Path ([System.IO.Path]::GetDirectoryName($CleanupUninstallerPath))
-      $uninstallInvoked = $false
+      $uninstallAttempted = $true
       try {
-        $uninstallProcess = Start-Process -FilePath $CleanupUninstallerPath -ArgumentList @('/S', '/currentuser') -WindowStyle Hidden -Wait -PassThru
-        $uninstallInvoked = $true
-        if ($uninstallProcess.ExitCode -ne 0) {
-          [void]$cleanupFailures.Add("Uninstaller exited with code $($uninstallProcess.ExitCode).")
-        }
+        Invoke-BoundedProcess -FilePath $CleanupUninstallerPath -ArgumentList @('/S', '/currentuser') -TimeoutSeconds $ProcessTimeoutSeconds -ProcessName "Uninstaller"
       } catch {
         [void]$cleanupFailures.Add("Could not run cleanup uninstaller '$CleanupUninstallerPath': $($_.Exception.Message)")
       }
-
-      if ($uninstallInvoked) {
-        $cleanupDeadline = [DateTime]::UtcNow.AddSeconds(30)
-        do {
-          try {
-            $remainingEntries = @(Get-NewMatchingUninstallEntries -ExpectedProductName $ProductName -PreexistingPaths $preexistingEntryPaths)
-          } catch {
-            [void]$cleanupFailures.Add("Could not poll uninstall entries during cleanup: $($_.Exception.Message)")
-            break
-          }
-
-          $requestedDirectoryGone = -not (Test-Path -LiteralPath $InstallDirectory)
-          $actualDirectoryGone = [string]::IsNullOrWhiteSpace($ActualInstallDirectory) -or
-            -not (Test-Path -LiteralPath $ActualInstallDirectory)
-          $shortcutsGone = -not (Test-Path -LiteralPath $desktopShortcutPath) -and
-            -not (Test-Path -LiteralPath $programsShortcutPath)
-
-          if ($remainingEntries.Count -eq 0 -and $requestedDirectoryGone -and $actualDirectoryGone -and $shortcutsGone) {
-            break
-          }
-
-          if ([DateTime]::UtcNow -ge $cleanupDeadline) {
-            break
-          }
-
-          Start-Sleep -Milliseconds 500
-        } while ($true)
-      }
     } elseif ($hasInstallArtifacts) {
       [void]$cleanupFailures.Add("Could not locate a safe cleanup uninstaller for installed artifacts.")
+    }
+
+    if ($uninstallAttempted) {
+      $cleanupDeadline = [DateTime]::UtcNow.AddSeconds(30)
+      do {
+        try {
+          $remainingEntries = @(Get-NewMatchingUninstallEntries -ExpectedProductName $ProductName -PreexistingPaths $preexistingEntryPaths)
+        } catch {
+          [void]$cleanupFailures.Add("Could not poll uninstall entries during cleanup: $($_.Exception.Message)")
+          break
+        }
+
+        $requestedDirectoryGone = -not (Test-Path -LiteralPath $InstallDirectory -PathType Any)
+        $actualDirectoryGone = [string]::IsNullOrWhiteSpace($ActualInstallDirectory) -or
+          -not (Test-Path -LiteralPath $ActualInstallDirectory -PathType Any)
+        $likelyDefaultDirectoryGone = [string]::IsNullOrWhiteSpace($LikelyDefaultInstallDirectory) -or
+          -not (Test-Path -LiteralPath $LikelyDefaultInstallDirectory -PathType Any)
+        $shortcutsGone = -not (Test-Path -LiteralPath $desktopShortcutPath -PathType Any) -and
+          -not (Test-Path -LiteralPath $programsShortcutPath -PathType Any)
+
+        if ($remainingEntries.Count -eq 0 -and $requestedDirectoryGone -and $actualDirectoryGone -and $likelyDefaultDirectoryGone -and $shortcutsGone) {
+          break
+        }
+
+        if ([DateTime]::UtcNow -ge $cleanupDeadline) {
+          break
+        }
+
+        Start-Sleep -Milliseconds 500
+      } while ($true)
     }
 
     try {
@@ -366,26 +531,53 @@ try {
     }
 
     foreach ($shortcutPath in @($desktopShortcutPath, $programsShortcutPath)) {
-      if (Test-Path -LiteralPath $shortcutPath) {
+      if (Test-Path -LiteralPath $shortcutPath -PathType Any) {
         [void]$cleanupFailures.Add("Shortcut remains after cleanup: $shortcutPath")
       }
     }
 
-    $cleanupDirectories = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    [void]$cleanupDirectories.Add($InstallDirectory)
+    $cleanupDirectories = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $cleanupDirectories[$InstallDirectory] = "Install directory"
     if (-not [string]::IsNullOrWhiteSpace($ActualInstallDirectory)) {
-      [void]$cleanupDirectories.Add($ActualInstallDirectory)
+      $cleanupDirectories[$ActualInstallDirectory] = "Install directory"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($LikelyDefaultInstallDirectory)) {
+      $cleanupDirectories[$LikelyDefaultInstallDirectory] = "Likely default install directory"
     }
 
-    foreach ($directory in $cleanupDirectories) {
-      if (-not (Test-Path -LiteralPath $directory)) {
+    foreach ($candidate in $cleanupDirectories.GetEnumerator()) {
+      $directory = $candidate.Key
+      if (-not (Test-Path -LiteralPath $directory -PathType Any)) {
         continue
       }
 
-      [void]$cleanupFailures.Add("Install directory remains after cleanup: $directory")
-      if (Test-StrictDescendant -Candidate $directory -Root $TemporaryRoot) {
+      [void]$cleanupFailures.Add("$($candidate.Value) remains after cleanup: $directory")
+      $isInsideTemporaryRoot = Test-StrictDescendant -Candidate $directory -Root $TemporaryRoot
+
+      try {
+        $leftoverItem = Get-Item -LiteralPath $directory -Force
+      } catch {
+        [void]$cleanupFailures.Add("Could not inspect cleanup leftover '$directory': $($_.Exception.Message)")
+        continue
+      }
+
+      if (Test-IsReparsePoint -Item $leftoverItem) {
+        [void]$cleanupFailures.Add("Reparse point remains after cleanup: $directory")
+        if ($isInsideTemporaryRoot) {
+          try {
+            Remove-ReparsePoint -Path $directory
+          } catch {
+            [void]$cleanupFailures.Add("Link-only fallback removal failed for '$directory': $($_.Exception.Message)")
+          }
+        } else {
+          [void]$cleanupFailures.Add("Refusing fallback removal outside TemporaryRoot: $directory")
+        }
+        continue
+      }
+
+      if ($isInsideTemporaryRoot) {
         try {
-          Remove-Item -LiteralPath $directory -Recurse -Force
+          Remove-DirectoryTreeWithoutFollowingReparsePoints -Path $directory
         } catch {
           [void]$cleanupFailures.Add("Fallback removal failed for '$directory': $($_.Exception.Message)")
         }

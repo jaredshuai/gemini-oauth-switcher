@@ -1,6 +1,16 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -62,55 +72,212 @@ describe("packaged renderer config", () => {
     expect(releaseIndex).toBeGreaterThan(smokeIndex);
     expect(workflow).toContain("./scripts/smoke-test-windows-installer.ps1");
     expect(workflow).toContain("Custom Install With Spaces");
+    expect(workflow.slice(smokeIndex, uploadIndex)).not.toContain("finally");
+    expect(workflow.slice(smokeIndex, uploadIndex)).not.toContain("Remove-Item -LiteralPath $temporaryRoot -Recurse");
 
     const script = readFileSync(path.join(process.cwd(), "scripts", "smoke-test-windows-installer.ps1"), "utf8");
 
     expect(script).toContain("TemporaryRoot");
-    expect(script).toContain('ArgumentList @("/S", "/D=$InstallDirectory")');
+    expect(script).toContain("ProcessTimeoutSeconds = 120");
+    expect(script).toContain("function Invoke-BoundedProcess");
+    expect(script).toContain(".WaitForExit(");
+    expect(script).toContain("Stop-Process");
+    expect(script).toContain("ArgumentList @('/S', \"/D=$InstallDirectory\")");
     expect(script).toContain("Get-MatchingUninstallEntries");
     expect(script).toContain("UninstallString");
     expect(script).toContain('[Environment]::GetFolderPath("Programs")');
+    expect(script).toContain("[System.IO.FileAttributes]::ReparsePoint");
+    expect(script).toContain("Remove-ReparsePoint");
+    expect(script).toContain("LikelyDefaultInstallDirectory");
+    expect(script).toContain("$env:LOCALAPPDATA");
+    expect(script).toContain("Test-Path -LiteralPath");
+    expect(script).toContain("-PathType Any");
+    expect(script).toContain('$displayName.StartsWith("$ExpectedProductName ", [System.StringComparison]::OrdinalIgnoreCase)');
   });
 
   it.runIf(process.platform === "win32")("refuses an existing install directory before starting the installer", () => {
     const temporaryRoot = mkdtempSync(path.join(tmpdir(), "gemini-switcher-installer-smoke-"));
     const installDirectory = path.join(temporaryRoot, "Existing Install");
     const sentinelPath = path.join(installDirectory, "sentinel.txt");
-    const uniqueName = `Gemini OAuth Switcher Smoke ${randomUUID()}`;
-    const scriptPath = path.join(process.cwd(), "scripts", "smoke-test-windows-installer.ps1");
+    const probe = makeLaunchProbe(temporaryRoot, ["exit /b 17"]);
 
     mkdirSync(installDirectory);
     writeFileSync(sentinelPath, "unchanged", "utf8");
 
     try {
-      expect(() => execFileSync("pwsh.exe", [
-        "-NoLogo",
-        "-NoProfile",
-        "-NonInteractive",
-        "-File",
-        scriptPath,
-        "-InstallerPath",
-        process.execPath,
-        "-TemporaryRoot",
+      expect(() => invokeInstallerSmoke({
+        installerPath: probe.path,
         temporaryRoot,
-        "-InstallDirectory",
-        installDirectory,
-        "-ProductName",
-        uniqueName,
-        "-ExecutableName",
-        `${uniqueName}.exe`,
-        "-UninstallerName",
-        `Uninstall ${uniqueName}.exe`,
-        "-ShortcutName",
-        uniqueName
-      ], {
-        cwd: process.cwd(),
-        stdio: "pipe",
-        windowsHide: true
+        installDirectory
       })).toThrow("Install directory already exists");
 
       expect(readFileSync(sentinelPath, "utf8")).toBe("unchanged");
+      expect(existsSync(probe.markerPath)).toBe(false);
     } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(process.platform === "win32")("reports a missing installer with the contract error", () => {
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), "gemini-switcher-installer-missing-"));
+    const installerPath = path.join(temporaryRoot, "missing-installer.exe");
+
+    try {
+      expect(() => invokeInstallerSmoke({
+        installerPath,
+        temporaryRoot,
+        installDirectory: path.join(temporaryRoot, "Install")
+      })).toThrow(`Installer does not exist: ${installerPath}`);
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(process.platform === "win32")("terminates an installer process that exceeds ProcessTimeoutSeconds", () => {
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), "gemini-switcher-installer-timeout-"));
+    const probe = makeLaunchProbe(temporaryRoot, ["ping -n 6 127.0.0.1 >nul", "exit /b 0"]);
+
+    try {
+      expect(() => invokeInstallerSmoke({
+        installerPath: probe.path,
+        temporaryRoot,
+        installDirectory: path.join(temporaryRoot, "Timed Install"),
+        processTimeoutSeconds: 1
+      })).toThrow("Installer timed out after 1 seconds");
+
+      expect(existsSync(probe.markerPath)).toBe(true);
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(process.platform === "win32")("rejects a TemporaryRoot reparse point before starting the installer", () => {
+    const outerRoot = mkdtempSync(path.join(tmpdir(), "gemini-switcher-root-reparse-"));
+    const actualRoot = path.join(outerRoot, "actual-root");
+    const linkedRoot = path.join(outerRoot, "linked-root");
+    const probe = makeLaunchProbe(outerRoot, ["exit /b 17"]);
+
+    mkdirSync(actualRoot);
+    symlinkSync(actualRoot, linkedRoot, "junction");
+
+    try {
+      expect(() => invokeInstallerSmoke({
+        installerPath: probe.path,
+        temporaryRoot: linkedRoot,
+        installDirectory: path.join(linkedRoot, "Install")
+      })).toThrow("TemporaryRoot must not be a reparse point");
+
+      expect(existsSync(probe.markerPath)).toBe(false);
+    } finally {
+      unlinkJunctionIfPresent(linkedRoot);
+      rmSync(outerRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(process.platform === "win32")("rejects an existing reparse component beneath TemporaryRoot", () => {
+    const outerRoot = mkdtempSync(path.join(tmpdir(), "gemini-switcher-component-reparse-"));
+    const temporaryRoot = path.join(outerRoot, "temporary-root");
+    const outsideTarget = path.join(outerRoot, "outside-target");
+    const linkedComponent = path.join(temporaryRoot, "linked-component");
+    const probe = makeLaunchProbe(outerRoot, ["exit /b 17"]);
+
+    mkdirSync(temporaryRoot);
+    mkdirSync(outsideTarget);
+    symlinkSync(outsideTarget, linkedComponent, "junction");
+
+    try {
+      expect(() => invokeInstallerSmoke({
+        installerPath: probe.path,
+        temporaryRoot,
+        installDirectory: path.join(linkedComponent, "Install")
+      })).toThrow("Install path component is a reparse point");
+
+      expect(existsSync(probe.markerPath)).toBe(false);
+    } finally {
+      unlinkJunctionIfPresent(linkedComponent);
+      rmSync(outerRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(process.platform === "win32")("removes a leftover junction without recursing into its target", () => {
+    const outerRoot = mkdtempSync(path.join(tmpdir(), "gemini-switcher-leftover-reparse-"));
+    const temporaryRoot = path.join(outerRoot, "temporary-root");
+    const outsideTarget = path.join(outerRoot, "outside-target");
+    const targetSentinel = path.join(outsideTarget, "sentinel.txt");
+    const installDirectory = path.join(temporaryRoot, "leftover-link");
+    const probe = makeLaunchProbe(outerRoot, [
+      `mklink /J "${installDirectory}" "${outsideTarget}" >nul`,
+      "if errorlevel 1 exit /b 23",
+      "exit /b 17"
+    ]);
+
+    mkdirSync(temporaryRoot);
+    mkdirSync(outsideTarget);
+    writeFileSync(targetSentinel, "unchanged", "utf8");
+
+    try {
+      expect(() => invokeInstallerSmoke({
+        installerPath: probe.path,
+        temporaryRoot,
+        installDirectory
+      })).toThrow("Reparse point remains after cleanup");
+
+      expect(existsSync(installDirectory)).toBe(false);
+      expect(readFileSync(targetSentinel, "utf8")).toBe("unchanged");
+    } finally {
+      unlinkJunctionIfPresent(installDirectory);
+      rmSync(outerRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(process.platform === "win32")("refuses a preexisting likely default install directory", () => {
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), "gemini-switcher-default-preflight-"));
+    const productName = `Gemini OAuth Switcher Smoke ${randomUUID()}`;
+    const likelyDefaultDirectory = getLikelyDefaultInstallDirectory(productName);
+    const sentinelPath = path.join(likelyDefaultDirectory, "sentinel.txt");
+    const probe = makeLaunchProbe(temporaryRoot, ["exit /b 17"]);
+
+    mkdirSync(likelyDefaultDirectory, { recursive: true });
+    writeFileSync(sentinelPath, "unchanged", "utf8");
+
+    try {
+      expect(() => invokeInstallerSmoke({
+        installerPath: probe.path,
+        temporaryRoot,
+        installDirectory: path.join(temporaryRoot, "Install"),
+        productName
+      })).toThrow("Likely default install directory already exists");
+
+      expect(existsSync(probe.markerPath)).toBe(false);
+      expect(readFileSync(sentinelPath, "utf8")).toBe("unchanged");
+    } finally {
+      rmSync(likelyDefaultDirectory, { recursive: true, force: true });
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(process.platform === "win32")("reports a likely default directory created by a partial install", () => {
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), "gemini-switcher-default-leftover-"));
+    const productName = `Gemini OAuth Switcher Smoke ${randomUUID()}`;
+    const likelyDefaultDirectory = getLikelyDefaultInstallDirectory(productName);
+    const sentinelPath = path.join(likelyDefaultDirectory, "sentinel.txt");
+    const probe = makeLaunchProbe(temporaryRoot, [
+      `mkdir "${likelyDefaultDirectory}"`,
+      `> "${sentinelPath}" echo leftover`,
+      "exit /b 17"
+    ]);
+
+    try {
+      expect(() => invokeInstallerSmoke({
+        installerPath: probe.path,
+        temporaryRoot,
+        installDirectory: path.join(temporaryRoot, "Requested Install"),
+        productName
+      })).toThrow(`Likely default install directory remains after cleanup: ${likelyDefaultDirectory}`);
+
+      expect(readFileSync(sentinelPath, "utf8").trim()).toBe("leftover");
+    } finally {
+      rmSync(likelyDefaultDirectory, { recursive: true, force: true });
       rmSync(temporaryRoot, { recursive: true, force: true });
     }
   });
@@ -217,4 +384,90 @@ function makeFakeReleaseDirectory(options: { latestInstaller?: string } = {}): s
   ].join("\n"), "utf8");
 
   return releaseDir;
+}
+
+interface InstallerSmokeOptions {
+  installerPath: string;
+  temporaryRoot: string;
+  installDirectory: string;
+  productName?: string;
+  processTimeoutSeconds?: number;
+}
+
+function invokeInstallerSmoke(options: InstallerSmokeOptions): void {
+  const productName = options.productName ?? `Gemini OAuth Switcher Smoke ${randomUUID()}`;
+  const scriptPath = path.join(process.cwd(), "scripts", "smoke-test-windows-installer.ps1");
+  const args = [
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-File",
+    scriptPath,
+    "-InstallerPath",
+    options.installerPath,
+    "-TemporaryRoot",
+    options.temporaryRoot,
+    "-InstallDirectory",
+    options.installDirectory,
+    "-ProductName",
+    productName,
+    "-ExecutableName",
+    `${productName}.exe`,
+    "-UninstallerName",
+    `Uninstall ${productName}.exe`,
+    "-ShortcutName",
+    productName
+  ];
+
+  if (options.processTimeoutSeconds !== undefined) {
+    args.push("-ProcessTimeoutSeconds", String(options.processTimeoutSeconds));
+  }
+
+  try {
+    execFileSync("pwsh.exe", args, {
+      cwd: process.cwd(),
+      stdio: "pipe",
+      timeout: 15_000,
+      windowsHide: true
+    });
+  } catch (error) {
+    const failure = error as Error & { stderr?: Buffer | string; stdout?: Buffer | string };
+    const output = [failure.message, failure.stdout?.toString(), failure.stderr?.toString()]
+      .filter((value): value is string => Boolean(value))
+      .join("\n")
+      .replace(/\s*\|\s*/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    throw new Error(output);
+  }
+}
+
+function makeLaunchProbe(directory: string, commands: string[]): { path: string; markerPath: string } {
+  const id = randomUUID();
+  const probePath = path.join(directory, `installer-probe-${id}.cmd`);
+  const markerPath = path.join(directory, `launch-marker-${id}.txt`);
+
+  writeFileSync(probePath, [
+    "@echo off",
+    `> "${markerPath}" echo launched`,
+    ...commands,
+    ""
+  ].join("\r\n"), "utf8");
+
+  return { path: probePath, markerPath };
+}
+
+function unlinkJunctionIfPresent(junctionPath: string): void {
+  if (existsSync(junctionPath) && lstatSync(junctionPath).isSymbolicLink()) {
+    unlinkSync(junctionPath);
+  }
+}
+
+function getLikelyDefaultInstallDirectory(productName: string): string {
+  if (!process.env.LOCALAPPDATA) {
+    throw new Error("LOCALAPPDATA is required for Windows installer tests");
+  }
+
+  return path.join(process.env.LOCALAPPDATA, "Programs", productName);
 }
