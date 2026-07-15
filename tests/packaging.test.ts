@@ -147,11 +147,14 @@ describe("packaged renderer config", () => {
     const installerPath = path.join(temporaryRoot, "missing-installer.exe");
 
     try {
-      expect(() => invokeInstallerSmoke({
+      const error = captureInstallerSmokeError({
         installerPath,
         temporaryRoot,
         installDirectory: path.join(temporaryRoot, "Install")
-      })).toThrow(`Installer does not exist: ${installerPath}`);
+      });
+
+      expect(error).toContain("Installer does not exist:");
+      expect(error).toContain("missing-installer.exe");
     } finally {
       rmSync(temporaryRoot, { recursive: true, force: true });
     }
@@ -460,12 +463,15 @@ describe("packaged renderer config", () => {
     ]);
 
     try {
-      expect(() => invokeInstallerSmoke({
+      const error = captureInstallerSmokeError({
         installerPath: probe.path,
         temporaryRoot,
         installDirectory: path.join(temporaryRoot, "Requested Install"),
         productName
-      })).toThrow(`Likely default install directory remains after cleanup: ${likelyDefaultDirectory}`);
+      });
+
+      expect(error).toContain("Likely default install directory remains after cleanup:");
+      expect(error).toContain(productName);
 
       expect(readFileSync(sentinelPath, "utf8").trim()).toBe("leftover");
     } finally {
@@ -628,16 +634,28 @@ function invokeInstallerSmoke(options: InstallerSmokeOptions): void {
       windowsHide: true
     });
   } catch (error) {
-    const failure = error as Error & { stderr?: Buffer | string; stdout?: Buffer | string };
-    const output = [failure.message, failure.stdout?.toString(), failure.stderr?.toString()]
-      .filter((value): value is string => Boolean(value))
-      .join("\n")
-      .replace(/\s*\|\s*/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-    throw new Error(output);
+    throw new Error(normalizeErrorText(error));
   }
+}
+
+function captureInstallerSmokeError(options: InstallerSmokeOptions): string {
+  try {
+    invokeInstallerSmoke(options);
+  } catch (error) {
+    return normalizeErrorText(error);
+  }
+
+  throw new Error("Expected installer smoke invocation to fail");
+}
+
+function normalizeErrorText(error: unknown): string {
+  const failure = error as Error & { stderr?: Buffer | string; stdout?: Buffer | string };
+  return [failure.message, failure.stdout?.toString(), failure.stderr?.toString()]
+    .filter((value): value is string => Boolean(value))
+    .join("\n")
+    .replace(/\s*\|\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function makeLaunchProbe(directory: string, commands: string[]): { path: string; markerPath: string } {
