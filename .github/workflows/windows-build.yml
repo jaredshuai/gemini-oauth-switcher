@@ -90,6 +90,26 @@ jobs:
       - name: Verify Windows release artifacts
         run: pnpm verify:windows-artifacts
 
+      - name: Smoke test NSIS installer lifecycle
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -LiteralPath release -Filter 'Gemini-OAuth-Switcher-*-setup-x64.exe' -File)
+          if ($installers.Count -ne 1) {
+            throw "Expected exactly one Windows NSIS installer, found $($installers.Count)."
+          }
+
+          $temporaryRoot = Join-Path $env:RUNNER_TEMP "gemini-oauth-switcher-installer-smoke-$([guid]::NewGuid().ToString('N'))"
+          $installDirectory = Join-Path $temporaryRoot "Custom Install With Spaces"
+          New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
+
+          try {
+            & ./scripts/smoke-test-windows-installer.ps1 -InstallerPath $installers[0].FullName -TemporaryRoot $temporaryRoot -InstallDirectory $installDirectory
+          } finally {
+            if (Test-Path -LiteralPath $temporaryRoot) {
+              Remove-Item -LiteralPath $temporaryRoot -Recurse -Force
+            }
+          }
+
       - name: Verify release Authenticode signatures
         if: startsWith(github.ref, 'refs/tags/') && steps.signing.outputs.enabled == 'true'
         shell: pwsh

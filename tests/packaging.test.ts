@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -46,6 +47,72 @@ describe("packaged renderer config", () => {
     expect(workflow).toContain("Get-AuthenticodeSignature");
     expect(workflow).toContain("pnpm verify:windows-artifacts");
     expect(workflow).not.toContain("Refusing to publish unsigned release binaries");
+  });
+
+  it("gates artifact publication on the NSIS installer lifecycle smoke test", () => {
+    const workflow = readFileSync(path.join(process.cwd(), ".github", "workflows", "windows-build.yml"), "utf8");
+    const verifyIndex = workflow.indexOf("Verify Windows release artifacts");
+    const smokeIndex = workflow.indexOf("Smoke test NSIS installer lifecycle");
+    const uploadIndex = workflow.indexOf("Upload build artifacts");
+    const releaseIndex = workflow.indexOf("Create GitHub Release");
+
+    expect(verifyIndex).toBeGreaterThanOrEqual(0);
+    expect(smokeIndex).toBeGreaterThan(verifyIndex);
+    expect(uploadIndex).toBeGreaterThan(smokeIndex);
+    expect(releaseIndex).toBeGreaterThan(smokeIndex);
+    expect(workflow).toContain("./scripts/smoke-test-windows-installer.ps1");
+    expect(workflow).toContain("Custom Install With Spaces");
+
+    const script = readFileSync(path.join(process.cwd(), "scripts", "smoke-test-windows-installer.ps1"), "utf8");
+
+    expect(script).toContain("TemporaryRoot");
+    expect(script).toContain('ArgumentList @("/S", "/D=$InstallDirectory")');
+    expect(script).toContain("Get-MatchingUninstallEntries");
+    expect(script).toContain("UninstallString");
+    expect(script).toContain('[Environment]::GetFolderPath("Programs")');
+  });
+
+  it.runIf(process.platform === "win32")("refuses an existing install directory before starting the installer", () => {
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), "gemini-switcher-installer-smoke-"));
+    const installDirectory = path.join(temporaryRoot, "Existing Install");
+    const sentinelPath = path.join(installDirectory, "sentinel.txt");
+    const uniqueName = `Gemini OAuth Switcher Smoke ${randomUUID()}`;
+    const scriptPath = path.join(process.cwd(), "scripts", "smoke-test-windows-installer.ps1");
+
+    mkdirSync(installDirectory);
+    writeFileSync(sentinelPath, "unchanged", "utf8");
+
+    try {
+      expect(() => execFileSync("pwsh.exe", [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-File",
+        scriptPath,
+        "-InstallerPath",
+        process.execPath,
+        "-TemporaryRoot",
+        temporaryRoot,
+        "-InstallDirectory",
+        installDirectory,
+        "-ProductName",
+        uniqueName,
+        "-ExecutableName",
+        `${uniqueName}.exe`,
+        "-UninstallerName",
+        `Uninstall ${uniqueName}.exe`,
+        "-ShortcutName",
+        uniqueName
+      ], {
+        cwd: process.cwd(),
+        stdio: "pipe",
+        windowsHide: true
+      })).toThrow("Install directory already exists");
+
+      expect(readFileSync(sentinelPath, "utf8")).toBe("unchanged");
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
   });
 
   it("documents optional signing and the Windows warning shown for unsigned builds", () => {
