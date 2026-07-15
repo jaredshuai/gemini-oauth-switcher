@@ -11,6 +11,13 @@ import {
 } from "../src/renderer/utils";
 
 describe("renderer utils", () => {
+  it("removes Electron IPC transport details from user-facing errors", () => {
+    expect(rendererUtils.getErrorMessage(new Error(
+      "Error invoking remote method 'profiles:gemini:registerCurrent': Error: 同名账号目录中的身份不一致。"
+    ))).toBe("同名账号目录中的身份不一致。");
+    expect(rendererUtils.getErrorMessage(new Error("普通错误"))).toBe("普通错误");
+  });
+
   it("hides the auto-update setting for portable builds", () => {
     const shouldShowAutoUpdateSetting = (rendererUtils as typeof rendererUtils & {
       shouldShowAutoUpdateSetting?: (runtime: { isPortable: boolean }) => boolean;

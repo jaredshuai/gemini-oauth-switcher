@@ -49,16 +49,28 @@ export interface ProfileRegistrationMetadata {
   accountEmail?: string;
 }
 
+export interface ExistingProfileRegistrationContext {
+  profileName: string;
+  profilePath: string;
+  profileFilePath: string;
+  metadata: ProfileRegistrationMetadata;
+}
+
 export interface RegisterCurrentProfileSnapshotOptions {
   profilesRoot: string;
   targetOAuthPath: string;
   profileFileRelativePath?: string;
   profileFileLabel?: string;
   deriveProfile: (snapshotPath: string, sha256: string) => Promise<ProfileRegistrationMetadata>;
+  onExistingProfile?: (
+    context: ExistingProfileRegistrationContext
+  ) => Promise<"reject" | "replace">;
+  fileOperations?: Partial<SwitchFileOperations>;
 }
 
 export interface RegisterCurrentProfileSnapshotResult extends SwitchProfileResult, ProfileRegistrationMetadata {
   profilePath: string;
+  created: boolean;
 }
 
 export interface CleanupStaleProfileRegistrationsOptions {
@@ -273,7 +285,45 @@ async function registerCurrentProfileSnapshotUnlocked(
       throw error;
     });
     if (existingProfile) {
-      throw new Error(`Profile already exists: ${profileName}`);
+      if (!existingProfile.isDirectory()) {
+        throw new Error(`Profile path is not a directory: ${profileName}`);
+      }
+      await assertProfileDirectoryIsSafe(profilesRoot, profilePath);
+      const existingProfileFilePath = path.join(profilePath, profileFileRelativePath);
+      if (!(await fileExists(existingProfileFilePath))) {
+        throw new Error(`${profileFileLabel} does not exist for profile: ${profileName}`);
+      }
+      await assertProfileFileIsSafe(profilesRoot, existingProfileFilePath, profileFileLabel);
+      const action = await options.onExistingProfile?.({
+        profileName,
+        profilePath,
+        profileFilePath: existingProfileFilePath,
+        metadata
+      });
+      if (action !== "replace") {
+        throw new Error(`Profile already exists: ${profileName}`);
+      }
+
+      const targetHash = await replaceFileVerified({
+        sourcePath: pendingTargetPath,
+        sourceHash: snapshotHash,
+        targetPath: existingProfileFilePath,
+        temporaryHashErrorMessage: `Temporary ${profileFileLabel} hash does not match current account`,
+        targetHashErrorMessage: `Updated ${profileFileLabel} hash does not match current account`,
+        rollbackErrorMessage: `Failed to update ${profileFileLabel} and rollback was incomplete.`,
+        fileOperations: options.fileOperations
+      });
+      await rm(pendingProfilePath, { recursive: true, force: true }).catch(() => undefined);
+      return {
+        ...metadata,
+        profileName,
+        profilePath,
+        sourcePath,
+        targetPath: existingProfileFilePath,
+        sourceHash: snapshotHash,
+        targetHash,
+        created: false
+      };
     }
 
     await assertNoDuplicateProfileHash(profilesRoot, profileFileRelativePath, snapshotHash);
@@ -286,10 +336,68 @@ async function registerCurrentProfileSnapshotUnlocked(
       sourcePath,
       targetPath,
       sourceHash: snapshotHash,
-      targetHash: snapshotHash
+      targetHash: snapshotHash,
+      created: true
     };
   } catch (error) {
     await rm(pendingProfilePath, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+interface ReplaceFileVerifiedOptions {
+  sourcePath: string;
+  sourceHash: string;
+  targetPath: string;
+  temporaryHashErrorMessage: string;
+  targetHashErrorMessage: string;
+  rollbackErrorMessage: string;
+  fileOperations?: Partial<SwitchFileOperations>;
+}
+
+async function replaceFileVerified(options: ReplaceFileVerifiedOptions): Promise<string> {
+  await mkdir(path.dirname(options.targetPath), { recursive: true });
+  const fileOperations: SwitchFileOperations = {
+    copyFile,
+    rename,
+    unlink,
+    readFile,
+    writeFile: (filePath, payload) => writeFile(filePath, payload),
+    hashFile,
+    ...options.fileOperations
+  };
+  const previousPayload = (await fileExists(options.targetPath))
+    ? await fileOperations.readFile(options.targetPath)
+    : undefined;
+  const tempPath = `${options.targetPath}.${process.pid}.${randomUUID()}.tmp`;
+  let targetReplaced = false;
+
+  try {
+    await fileOperations.copyFile(options.sourcePath, tempPath);
+    const tempHash = await fileOperations.hashFile(tempPath);
+    if (tempHash !== options.sourceHash) {
+      throw new Error(options.temporaryHashErrorMessage);
+    }
+
+    await fileOperations.rename(tempPath, options.targetPath);
+    targetReplaced = true;
+    const targetHash = await fileOperations.hashFile(options.targetPath);
+    if (targetHash !== options.sourceHash) {
+      throw new Error(options.targetHashErrorMessage);
+    }
+    return targetHash;
+  } catch (error) {
+    await fileOperations.unlink(tempPath).catch(() => undefined);
+    if (targetReplaced) {
+      try {
+        await restoreTargetFile(options.targetPath, previousPayload, fileOperations);
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          options.rollbackErrorMessage
+        );
+      }
+    }
     throw error;
   }
 }
@@ -391,56 +499,23 @@ async function switchProfileUnlocked(options: SwitchProfileOptions): Promise<Swi
   const sourceHash = await hashFile(sourcePath);
   await ensureTargetDirectory(targetPath, options.targetDirectoryLabel ?? "Target Gemini directory");
 
-  const fileOperations: SwitchFileOperations = {
-    copyFile,
-    rename,
-    unlink,
-    readFile,
-    writeFile: (filePath, payload) => writeFile(filePath, payload),
-    hashFile,
-    ...options.fileOperations
+  const targetHash = await replaceFileVerified({
+    sourcePath,
+    sourceHash,
+    targetPath,
+    temporaryHashErrorMessage: `Temporary ${profileFileLabel} hash does not match selected profile`,
+    targetHashErrorMessage: `Target ${profileFileLabel} hash does not match selected profile after switch`,
+    rollbackErrorMessage: `Failed to switch ${profileFileLabel} and rollback was incomplete.`,
+    fileOperations: options.fileOperations
+  });
+
+  return {
+    profileName,
+    sourcePath,
+    targetPath,
+    sourceHash,
+    targetHash
   };
-  const previousTargetPayload = (await fileExists(targetPath))
-    ? await fileOperations.readFile(targetPath)
-    : undefined;
-
-  const tempPath = `${targetPath}.${process.pid}.${randomUUID()}.tmp`;
-  let targetReplaced = false;
-  try {
-    await fileOperations.copyFile(sourcePath, tempPath);
-    const tempHash = await fileOperations.hashFile(tempPath);
-    if (tempHash !== sourceHash) {
-      throw new Error(`Temporary ${profileFileLabel} hash does not match selected profile`);
-    }
-
-    await fileOperations.rename(tempPath, targetPath);
-    targetReplaced = true;
-    const targetHash = await fileOperations.hashFile(targetPath);
-    if (targetHash !== sourceHash) {
-      throw new Error(`Target ${profileFileLabel} hash does not match selected profile after switch`);
-    }
-
-    return {
-      profileName,
-      sourcePath,
-      targetPath,
-      sourceHash,
-      targetHash
-    };
-  } catch (error) {
-    await fileOperations.unlink(tempPath).catch(() => undefined);
-    if (targetReplaced) {
-      try {
-        await restoreTargetFile(targetPath, previousTargetPayload, fileOperations);
-      } catch (rollbackError) {
-        throw new AggregateError(
-          [error, rollbackError],
-          `Failed to switch ${profileFileLabel} and rollback was incomplete.`
-        );
-      }
-    }
-    throw error;
-  }
 }
 
 async function restoreTargetFile(

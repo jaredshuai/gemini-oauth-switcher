@@ -509,13 +509,15 @@ export function App() {
     setIsRegisteringCurrentProfile(true);
     setStatus({ tone: "idle", text: `正在登记当前 ${toolLabels.shortName} 账号...` });
     try {
+      const existingProfileNames = new Set(result.profiles.map((profile) => profile.name));
       const registered = isGeminiTool
         ? await getApi().registerCurrentGemini()
         : await getApi().registerCurrentAntigravity();
       const nextSettings = await getApi().getSettings();
       setSettings(nextSettings);
       await loadProfiles(selectedTool);
-      setStatus({ tone: "success", text: `已登记当前账号 ${registered.nickname || registered.profileName}。` });
+      const actionLabel = existingProfileNames.has(registered.profileName) ? "已更新账号" : "已登记当前账号";
+      setStatus({ tone: "success", text: `${actionLabel} ${registered.nickname || registered.profileName}。` });
     } catch (error) {
       setStatus({ tone: "error", text: getErrorMessage(error) });
     } finally {

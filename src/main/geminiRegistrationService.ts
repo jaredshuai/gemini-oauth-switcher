@@ -25,8 +25,29 @@ export async function registerCurrentGeminiAccount(
         nickname: accountEmail,
         accountEmail
       };
+    },
+    onExistingProfile: async ({ profileFilePath, metadata }) => {
+      const currentEmail = metadata.accountEmail?.trim().toLowerCase();
+      const existingEmail = (await resolveOAuthIdentityFromFile(profileFilePath)).accountEmail?.trim().toLowerCase();
+      if (!currentEmail || !existingEmail || currentEmail !== existingEmail) {
+        throw new Error("同名账号目录已存在，但其中的账号身份不一致，已停止覆盖。");
+      }
+      return "replace";
     }
   });
+
+  if (!registered.created) {
+    return {
+      sessionId: "current-gemini",
+      targetTool: "gemini",
+      profileName: registered.profileName,
+      nickname: registered.nickname,
+      profilePath: registered.profilePath,
+      oauthPath: registered.targetPath,
+      accountEmail: registered.accountEmail,
+      sha256: registered.targetHash
+    };
+  }
 
   const nextNicknames = { ...(options.profileNicknames ?? {}) };
   if (registered.nickname && registered.nickname !== registered.profileName) {

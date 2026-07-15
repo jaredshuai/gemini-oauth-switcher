@@ -282,7 +282,8 @@ export async function copyText(value: string): Promise<void> {
 }
 
 export function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, "");
 }
 
 export function getApi() {

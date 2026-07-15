@@ -183,6 +183,7 @@ describe("profileService", () => {
     const registeredOAuthPath = path.join(root, "new.user@example.com", ".gemini", "oauth_creds.json");
     await expect(readFile(registeredOAuthPath, "utf8")).resolves.toBe(currentCreds);
     expect(result).toMatchObject({
+      created: true,
       profileName: "new.user@example.com",
       sourcePath: targetOAuthPath,
       targetPath: registeredOAuthPath,
@@ -205,6 +206,78 @@ describe("profileService", () => {
       targetOAuthPath,
       deriveProfile: async () => ({ profileName: "existing" })
     })).rejects.toThrow(/already exists/i);
+  });
+
+  it("replaces an existing profile snapshot when the caller confirms the identity", async () => {
+    const root = await makeTempRoot();
+    const targetRoot = await makeTempRoot();
+    const targetOAuthPath = path.join(targetRoot, ".gemini", "oauth_creds.json");
+    const refreshedCredential = JSON.stringify({ account: "same@example.com", token: "refreshed" });
+    await mkdir(path.dirname(targetOAuthPath), { recursive: true });
+    await writeFile(targetOAuthPath, refreshedCredential, "utf8");
+    const existingOAuthPath = await writeProfile(root, "same_example_com", JSON.stringify({
+      account: "same@example.com",
+      token: "stale"
+    }));
+    const unrelatedPath = path.join(root, "same_example_com", ".gemini", "settings.json");
+    await writeFile(unrelatedPath, "keep-me", "utf8");
+
+    const result = await registerCurrentProfileSnapshot({
+      profilesRoot: root,
+      targetOAuthPath,
+      deriveProfile: async () => ({
+        profileName: "same_example_com",
+        accountEmail: "same@example.com"
+      }),
+      onExistingProfile: async (context) => {
+        expect(context).toMatchObject({
+          profileName: "same_example_com",
+          profilePath: path.join(root, "same_example_com"),
+          profileFilePath: existingOAuthPath,
+          metadata: {
+            accountEmail: "same@example.com"
+          }
+        });
+        return "replace";
+      }
+    });
+
+    await expect(readFile(existingOAuthPath, "utf8")).resolves.toBe(refreshedCredential);
+    await expect(readFile(unrelatedPath, "utf8")).resolves.toBe("keep-me");
+    expect(result).toMatchObject({
+      created: false,
+      profileName: "same_example_com",
+      targetPath: existingOAuthPath,
+      sourceHash: sha256(refreshedCredential),
+      targetHash: sha256(refreshedCredential)
+    });
+    expect((await readdir(root)).filter((entry) => entry.startsWith(".pending-register-"))).toEqual([]);
+  });
+
+  it("restores the existing profile when replacement verification fails", async () => {
+    const root = await makeTempRoot();
+    const targetRoot = await makeTempRoot();
+    const targetOAuthPath = path.join(targetRoot, ".gemini", "oauth_creds.json");
+    const existingCredential = JSON.stringify({ account: "same@example.com", token: "stale" });
+    const refreshedCredential = JSON.stringify({ account: "same@example.com", token: "refreshed" });
+    await mkdir(path.dirname(targetOAuthPath), { recursive: true });
+    await writeFile(targetOAuthPath, refreshedCredential, "utf8");
+    const existingOAuthPath = await writeProfile(root, "same_example_com", existingCredential);
+
+    await expect(registerCurrentProfileSnapshot({
+      profilesRoot: root,
+      targetOAuthPath,
+      deriveProfile: async () => ({ profileName: "same_example_com" }),
+      onExistingProfile: async () => "replace",
+      fileOperations: {
+        hashFile: async (filePath) => filePath === existingOAuthPath
+          ? sha256("corrupted-target")
+          : hashFile(filePath)
+      }
+    })).rejects.toThrow(/hash does not match/i);
+
+    await expect(readFile(existingOAuthPath, "utf8")).resolves.toBe(existingCredential);
+    expect((await readdir(root)).filter((entry) => entry.startsWith(".pending-register-"))).toEqual([]);
   });
 
   it("derives profile metadata from the copied snapshot instead of a later source version", async () => {
