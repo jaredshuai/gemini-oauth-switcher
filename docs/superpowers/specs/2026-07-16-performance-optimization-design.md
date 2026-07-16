@@ -26,6 +26,14 @@ These values are local reference measurements, not release guarantees. The imple
 4. Defer noncritical renderer startup data until the account list can begin loading.
 5. Preserve current UI behavior, account switching, usage display semantics, settings, and update behavior.
 
+Implementation is divided into three sequential, independently reviewable milestones:
+
+1. startup maintenance and renderer startup ordering;
+2. main-process access-token reuse;
+3. renderer row isolation.
+
+Each milestone has its own focused tests and commit. The next milestone does not begin until the previous milestone passes its tests and review. Packaging and the complete Windows smoke check run after all three milestones.
+
 ## Non-Goals
 
 - Replacing Electron or changing the required Electron/Vite/React/TypeScript stack.
@@ -34,6 +42,7 @@ These values are local reference measurements, not release guarantees. The imple
 - Caching profile file hashes across application launches.
 - Changing quota endpoints, response mapping, or used-versus-remaining display semantics.
 - Redesigning the interface, changing account columns, or adding new settings.
+- Adding dialog code splitting or other bundle changes without a separate measured justification.
 - Bumping the version, packaging a release, or publishing artifacts before verification.
 
 ## Startup Maintenance
@@ -60,22 +69,30 @@ The coordinator runs these independent operations concurrently:
 - stale Antigravity login cleanup under the application temp login root;
 - stale pending Gemini profile-registration cleanup.
 
-`profiles:list` does not wait for maintenance because profile scanning already excludes pending login and registration names. Operations that create or finalize pending state, especially `oauthLogin:start`, wait for the coordinator's settled result before proceeding. This prevents a newly created login session from racing an older cleanup pass.
+Only these IPC operations wait for maintenance settlement:
+
+- `oauthLogin:start`, because it creates a pending login directory and may prepare an Antigravity credential backup;
+- `profiles:gemini:registerCurrent`, because it creates a pending profile-registration directory.
+
+`oauthLogin:inspect`, `oauthLogin:save`, and `oauthLogin:cancel` operate only on sessions created after `oauthLogin:start` has passed the gate, so they do not wait again. `profiles:list`, switching, deletion, Antigravity current-account registration, settings, and usage queries do not create matching pending state and do not wait.
+
+This exhaustive wait list prevents a newly created pending directory from racing an older cleanup pass without adding cleanup latency to unrelated account operations.
 
 Cleanup failures keep their current nonfatal behavior: they are recorded through the existing diagnostic logger, contain no credential payloads, and do not prevent the main window from opening. Awaiting callers wait for completion, not success, so an unrelated stale directory cannot permanently disable new login.
 
+The coordinator obtains the existing lazy diagnostic logger before starting cleanup tasks. The `app.started` log write is independent and is not a prerequisite for cleanup logging. Every diagnostic write remains individually caught, so logging failure cannot reject the maintenance promise.
+
 ### Boundary
 
-The coordinator only schedules existing cleanup services and exposes a small interface:
+The coordinator only schedules existing cleanup services and exposes one operation:
 
 ```ts
 interface StartupMaintenanceCoordinator {
-  start(): Promise<void>;
-  waitUntilSettled(): Promise<void>;
+  ensureStarted(): Promise<void>;
 }
 ```
 
-Calling either method repeatedly returns the same promise. Cleanup implementation details remain in `oauthLoginService.ts` and `profileService.ts`.
+The first `ensureStarted()` call starts maintenance and returns one always-settling process-lifetime promise. Every later call returns that same promise. Startup calls it without awaiting; the two gated IPC handlers await it. Cleanup implementation details remain in `oauthLoginService.ts` and `profileService.ts`.
 
 ## Access Token Reuse
 
@@ -85,23 +102,56 @@ Usage queries can refresh an expired OAuth access token and then discard the ref
 
 ### Design
 
-Add a main-process, memory-only access token cache shared by the Gemini and Antigravity usage paths through a small injected interface.
+Add a main-process, memory-only access token session cache shared by the Gemini and Antigravity usage paths through a small injected interface.
 
 ```ts
-interface AccessTokenCache {
+interface RefreshedAccessToken {
+  token: string;
+  expiresInSeconds?: number;
+}
+
+interface AccessTokenSessionCache {
   get(key: string, nowMs: number): string | undefined;
-  set(key: string, token: string, expiresAtMs: number): void;
-  invalidate(key: string): void;
+  getOrRefresh(
+    key: string,
+    nowMs: number,
+    refresh: () => Promise<RefreshedAccessToken | undefined>
+  ): Promise<string | undefined>;
+  invalidateRejected(key: string, rejectedToken: string): void;
 }
 ```
 
-Cache keys are derived from nonreversible credential identity data already available inside the main process, such as the target tool plus credential payload hash. Raw access tokens, refresh tokens, file contents, email addresses, and profile names are not used as keys or logged.
+The exact cache key is:
 
-Token refresh functions return the access token together with its expiry. The cache applies a safety margin before the provider expiry. If expiry metadata is absent or invalid, the token receives a conservative short lifetime rather than an assumed full OAuth lifetime.
+```ts
+`${targetTool}:${sha256(rawCredentialPayload)}`
+```
+
+For Gemini, `rawCredentialPayload` is the exact byte content read from that profile's OAuth file. For Antigravity, it is the exact credential payload returned by Credential Manager. The raw payload and resulting key remain inside the main process. The target-tool prefix prevents cross-provider reuse, and any credential payload change produces a new key. Access tokens, refresh tokens, email addresses, profile names, and credential paths are not used as keys or logged.
+
+Token refresh functions return the access token together with the provider's `expires_in` value. Cache expiry is calculated as follows:
+
+- a finite positive `expires_in` uses that lifetime;
+- missing, nonfinite, or nonpositive metadata uses a five-minute fallback lifetime;
+- the safety margin is the smaller of 60 seconds or 10 percent of the selected lifetime;
+- the entry expires when `nowMs >= expiresAtMs`;
+- entries with less than 10 seconds of usable lifetime after the margin are not cached.
 
 Each usage query still calls the quota endpoint. Therefore the existing "query" and "query again" actions continue to retrieve current quota data. Only the redundant token refresh request is skipped.
 
-Concurrent refreshes for the same cache key share one in-flight promise. A 401 response invalidates the cached token and permits the existing single refresh-and-retry behavior. A changed credential payload naturally creates a different key and cannot reuse the previous account's token.
+The cache owns both the token-entry map and the in-flight refresh-promise map. `getOrRefresh()` follows this order:
+
+1. return a valid cached token;
+2. await the existing in-flight promise for the key;
+3. otherwise insert one refresh promise before invoking the provider;
+4. cache a successful result using the expiry rules above;
+5. remove the same in-flight promise in `finally`, including rejection paths.
+
+Each usage query has a fixed authentication recovery budget: one initial quota attempt, at most one token refresh after an HTTP 401, and at most one quota retry. HTTP 403 and other failures are not retried by the cache.
+
+`invalidateRejected()` removes an entry only when the entry still contains the exact token rejected by that caller. If another caller has already stored a newer token, a late 401 for the old token cannot remove it. Concurrent callers then converge on the existing cached token or `getOrRefresh()` promise, so they share one refresh even though each caller performs its own single quota retry.
+
+A changed credential payload naturally creates a different key and cannot reuse the previous account's token.
 
 The cache is cleared automatically when the Electron main process exits. It is never exposed through preload or renderer IPC and is never written to settings or diagnostics.
 
@@ -113,7 +163,7 @@ The cache is cleared automatically when the Electron main process exits. It is n
 
 ### Design
 
-Extract an `AccountVault` component that owns only account-table presentation. It receives stable command callbacks that accept a `ProfileInfo` argument instead of one new closure per row.
+Extract a memoized `AccountVault` component that owns only account-table presentation. It receives stable command callbacks created with `useCallback` and accepting a `ProfileInfo` argument instead of one new closure per row.
 
 Wrap `ProfileRow` in `React.memo`. Its props remain row-local primitives or stable references:
 
@@ -123,9 +173,19 @@ Wrap `ProfileRow` in `React.memo`. Its props remain row-local primitives or stab
 - shared disabled state and display mode;
 - stable action callbacks.
 
+While usage, status, nickname-dialog, update, or relative-time state changes, `result.profiles` and each contained profile object must retain their existing references. Profile records may all be replaced only when a profile-list request completes, in which case rerendering every row is expected. `AccountVault` may rerender when the usage map changes, but unchanged rows receive the same profile object, usage object, primitive flags, and callback references and therefore remain memoized.
+
+The row callback contract is explicit:
+
+```ts
+type ProfileCommand = (profile: ProfileInfo) => void;
+```
+
+`AccountVault` passes the same command function to every row. A row may create its DOM event closure internally because that closure is recreated only when that row itself renders.
+
 Move the one-minute relative-time tick from `App` into the component that formats the last-switch timestamp. A relative-time update must not rerender the account vault.
 
-Keep dialogs conditionally mounted as today. Dynamic imports for settings and login dialogs are permitted only if the post-change renderer measurement shows a meaningful initial bundle or parse improvement; code splitting is not required for acceptance.
+Keep dialogs conditionally mounted as today. Dynamic imports and dialog bundle splitting are outside this implementation.
 
 The refactor must not move filesystem, credential, hash, settings persistence, or usage networking into the renderer.
 
@@ -136,6 +196,8 @@ Settings remain the first required IPC result because they select the initial ta
 Runtime information, update status, and local diagnostics remain parallel requests, but they no longer gate the first profile request. Their results update their existing UI regions when available. Failure of these noncritical requests remains nonfatal and must not replace a successfully loaded account list with an error state.
 
 The renderer continues to ignore stale profile-list responses through the existing request identifier mechanism.
+
+If the required settings IPC fails, preserve the current safe failure behavior: stop the boot loading state, keep the window visible, show the sanitized error, and do not guess a persisted target tool. The user may still invoke the existing list refresh for the currently displayed default tool. Auxiliary IPC completion must not overwrite that settings error.
 
 ## Error Handling
 
@@ -160,25 +222,30 @@ The renderer continues to ignore stale profile-list responses through the existi
 - Startup maintenance starts once even when requested by startup and login concurrently.
 - Window creation is not awaited behind a deliberately delayed cleanup operation.
 - Cleanup rejection is logged and settles without permanently blocking login.
+- `oauthLogin:start` and `profiles:gemini:registerCurrent` wait for maintenance; unrelated IPC handlers do not.
 - Concurrent token refreshes for one credential share one provider request.
 - A cached refreshed token is reused before expiry and rejected after expiry.
 - A credential hash change cannot reuse a previous token.
-- A 401 invalidates the cached token and performs at most one refresh-and-retry.
+- Concurrent 401 responses share one refresh request, and each usage query performs no more than two quota attempts.
+- A late 401 for an older token cannot invalidate a newer token already stored by another caller.
+- Missing or invalid `expires_in`, expiry equality, safety-margin, and too-short-to-cache boundaries follow the specified numeric rules.
+- A settings IPC failure remains visible and cannot be overwritten by later auxiliary IPC results.
 - Existing profile, login, usage, settings, update, and rollback tests continue to pass.
 
 ### Runtime Checks
 
-- Repeat the unpacked production launch measurement at least five times before and after the change and compare the median visible-window time.
-- Confirm the main window appears while an injected delayed maintenance operation is still unresolved.
-- Use React Profiler or an equivalent development-only render counter to confirm that refreshing one profile does not render unrelated rows.
+- Build the unpacked production application with `pnpm pack:win`. Fully terminate all application processes before each run. Start the timer immediately before `Start-Process` and stop it at the first nonzero main-window handle for the launched primary process. Poll every 50 ms, enforce a 20-second timeout, stop the full launched process tree after measurement, and confirm no matching process remains.
+- Perform one discarded warm-up followed by five recorded runs in the same Windows login session and power state, with no dev server running. Record all five raw values and compare medians. The post-change median must not exceed the baseline median by more than the larger of 100 ms or 10 percent.
+- Confirm through an injected delayed maintenance test that the main-window creation callback completes before the maintenance promise resolves.
+- In a fixed three-profile renderer scenario, reset render counters after the initial commit, update only profile A's usage, and require profile A to render once while profiles B and C render zero times. Advancing the last-switch relative-time tick must render all three profile rows zero times. Run the counter outside React Strict Mode or compare commits rather than development double-invocations.
 - Query Gemini and Antigravity usage twice with an expired stored access token and confirm that the second query still reaches the quota endpoint but does not repeat the token refresh while the cached token is valid.
 - Run `pnpm test`, `pnpm build`, `pnpm dist:win`, and the packaged Windows smoke checks.
 
 ## Success Criteria
 
 - Main-window creation no longer waits for stale-session cleanup.
-- Clean-start performance does not regress, and delayed cleanup cannot delay the visible window by the cleanup duration.
+- The five-run startup median stays within the defined 100 ms/10 percent regression tolerance, and delayed cleanup cannot delay the window-creation callback.
 - Repeated usage queries in one app session avoid redundant access-token refresh requests without serving cached quota data.
-- Updating one profile's usage or activity state does not rerender unrelated profile rows.
-- Profile switching, deletion, login, current-account registration, settings, tray behavior, and updates retain existing behavior.
-- No sensitive credential or token material is added to IPC, settings, diagnostics, test fixtures, or repository history.
+- The fixed three-profile render-counter scenario meets the specified `1/0/0` usage-update and `0/0/0` relative-time expectations.
+- Existing automated suites pass unchanged or with focused additions for the three milestones; packaged smoke checks cover profile switching, usage query, settings opening, and clean exit.
+- Tests assert that known token sentinel values never appear in IPC results or captured diagnostic calls. The staged diff contains no OAuth credential files or real credential fixtures.
