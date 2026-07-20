@@ -680,9 +680,9 @@ export function App() {
   const isToolSwitchDisabled = isLoading || isProfileActionBusy || isSavingSettings || isUsageRefreshBusy;
 
   return (
-    <main className="app-parchment min-h-screen text-neutral-950 antialiased" data-theme={uiThemeDraft}>
+    <main className="app-parchment flex h-screen flex-col overflow-hidden text-neutral-950 antialiased" data-theme={uiThemeDraft}>
       <div className="window-drag-region" aria-hidden="true" />
-      <div className="mx-auto flex min-h-[calc(100vh-2.25rem)] w-full max-w-6xl flex-col px-6 pb-6 pt-5">
+      <div className="mx-auto w-full max-w-6xl flex-none px-6 pt-5">
         <header className="app-header flex items-center justify-between gap-4 border-b pb-3.5">
           <div className="flex shrink-0 items-center gap-1.5">
             <h1 className="sr-only">当前工具:{toolLabels.name}</h1>
@@ -729,7 +729,10 @@ export function App() {
               </button>
           </div>
         </header>
+      </div>
 
+      <div className="app-scroll-region min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex w-full max-w-6xl flex-col px-6 pb-6">
         <CurrentAccountPanel
           selectedTool={selectedTool}
           currentProfile={currentProfile}
@@ -793,8 +796,10 @@ export function App() {
             </div>
           )}
         </section>
+        </div>
+      </div>
 
-        {isSettingsOpen ? (
+      {isSettingsOpen ? (
           <SettingsDialog
             profilesRootDraft={profilesRootDraft}
             selectedTool={selectedTool}
@@ -859,7 +864,6 @@ export function App() {
             onClose={() => setPendingDeleteProfile(undefined)}
           />
         ) : null}
-      </div>
     </main>
   );
 }
