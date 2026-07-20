@@ -15,7 +15,7 @@ describe("renderer accessibility contracts", () => {
   });
 
   it("uses shared focus containment for every modal", () => {
-    for (const fileName of ["SettingsDialog.tsx", "NicknameDialog.tsx", "OAuthLoginDialog.tsx"]) {
+    for (const fileName of ["SettingsDialog.tsx", "NicknameDialog.tsx", "OAuthLoginDialog.tsx", "ConfirmDialog.tsx"]) {
       const source = readRendererFile(path.join("components", fileName));
       expect(source, fileName).toContain("useModalBehavior");
       expect(source, fileName).toContain("ref={dialogRef}");
@@ -36,6 +36,57 @@ describe("renderer accessibility contracts", () => {
 
     const nicknameDialog = readRendererFile(path.join("components", "NicknameDialog.tsx"));
     expect(nicknameDialog).toContain("data-dialog-autofocus");
+  });
+
+  it("gives the primary action visual priority and keeps labels visible at the default width", () => {
+    const app = readRendererFile("App.tsx");
+
+    expect(app).toContain("primary-button");
+    expect(app).not.toContain("min-[1180px]");
+    expect(app).toContain("min-[900px]:inline");
+    expect(app).toContain("Gauge");
+    expect(app).not.toContain("Activity");
+  });
+
+  it("keeps the compact identity panel free of redundant confirmations", () => {
+    const panel = readRendererFile(path.join("components", "CurrentAccountPanel.tsx"));
+
+    expect(panel).not.toContain("状态正常");
+    expect(panel).not.toContain("环境正常");
+    expect(panel).toContain("lastSwitch && lastSwitchName ? (");
+  });
+
+  it("routes destructive confirmation through the app dialog system", () => {
+    const app = readRendererFile("App.tsx");
+    expect(app).not.toContain("window.confirm");
+    expect(app).toContain("<ConfirmDialog");
+
+    const dialog = readRendererFile(path.join("components", "ConfirmDialog.tsx"));
+    expect(dialog).toContain("useModalBehavior");
+    expect(dialog).toContain('aria-modal="true"');
+    expect(dialog).toContain("data-dialog-autofocus");
+  });
+
+  it("exposes the current target tool to assistive technology", () => {
+    const source = readRendererFile(path.join("components", "TargetToolSwitch.tsx"));
+
+    expect(source).toContain('role="group"');
+    expect(source).toContain("当前为");
+    expect(source).toContain('aria-current="true"');
+  });
+
+  it("keeps the page heading truthful instead of naming an action", () => {
+    const app = readRendererFile("App.tsx");
+
+    expect(app).toContain('<h1 className="sr-only">当前工具:');
+  });
+
+  it("treats partial usage-query failures as a warning, not an error", () => {
+    const app = readRendererFile("App.tsx");
+
+    expect(app).toContain('tone: failedCount > 0 ? "warning" : "success"');
+    expect(app).toContain("失败账号已在列表中标出");
+    expect(app).toContain("autoFade: true");
   });
 
   it("bounds every editable nickname field", () => {

@@ -128,21 +128,13 @@ function AccountStatusPanel({
   if (compact) {
     return (
       <div className="flex min-w-0 flex-col justify-center border-t border-neutral-800/80 px-7 py-4 lg:border-t-0">
-        <div className="flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-300">
-          <ShieldCheck className="h-3.5 w-3.5" />
-          状态正常
-        </div>
-        <div className="mt-3 grid items-center gap-4 border-t border-neutral-800/80 pt-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+        {lastSwitch && lastSwitchName ? (
           <InfoBlock
             label="最近切换"
-            value={lastSwitch && lastSwitchName ? `${formatSwitchRelativeTime(lastSwitch.switchedAt)} / ${lastSwitchName}` : "暂无记录"}
-            tone={lastSwitch ? "normal" : "muted"}
+            value={`${formatSwitchRelativeTime(lastSwitch.switchedAt)} / ${lastSwitchName}`}
+            tone="normal"
           />
-          <div className="flex flex-wrap gap-2">
-            <RiskChip tone="success" label="环境正常" />
-            {selectedTool === "gemini" ? <RiskChip tone="success" label="Gemini CLI 可用" /> : null}
-          </div>
-        </div>
+        ) : null}
       </div>
     );
   }

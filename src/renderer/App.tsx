@@ -1,4 +1,4 @@
-import { Activity, Plus, RefreshCw, Settings } from "lucide-react";
+import { Gauge, Plus, RefreshCw, Settings } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AppSettings,
@@ -16,6 +16,7 @@ import type {
   UsageDisplayMode
 } from "../shared/types";
 import { CurrentAccountPanel } from "./components/CurrentAccountPanel";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import { NicknameDialog } from "./components/NicknameDialog";
 import { OAuthLoginDialog } from "./components/OAuthLoginDialog";
 import { ProfileRow } from "./components/ProfileRow";
@@ -46,6 +47,7 @@ export function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [switchingProfile, setSwitchingProfile] = useState<string | undefined>();
   const [deletingProfile, setDeletingProfile] = useState<string | undefined>();
+  const [pendingDeleteProfile, setPendingDeleteProfile] = useState<ProfileInfo | undefined>();
   const [usageByProfile, setUsageByProfile] = useState<Record<string, ProfileUsageResult>>({});
   const [localDiagnostics, setLocalDiagnostics] = useState<LocalDiagnosticsResult | undefined>();
   const [refreshingUsageProfiles, setRefreshingUsageProfiles] = useState<Set<string>>(() => new Set());
@@ -455,20 +457,21 @@ export function App() {
     }
   }
 
-  async function deleteProfile(profile: ProfileInfo) {
+  function requestDeleteProfile(profile: ProfileInfo) {
     if (profile.isCurrent) {
       setStatus({ tone: "error", text: "不能删除当前正在使用的账号。请先切换到其他账号。" });
       return;
     }
 
-    const confirmed = window.confirm(
-      isGeminiTool
-        ? `删除 profile「${profile.name}」？\n\n会把这个目录移到 Windows 回收站：\n${profile.profilePath}`
-        : `删除 Antigravity 账号「${getProfileDisplayName(profile, profileNicknames)}」？\n\n会删除本应用保存的切换凭据，不会影响任何 Gemini 账号目录。`
-    );
-    if (!confirmed) {
+    setPendingDeleteProfile(profile);
+  }
+
+  async function confirmDeleteProfile() {
+    const profile = pendingDeleteProfile;
+    if (!profile) {
       return;
     }
+    setPendingDeleteProfile(undefined);
     if (profileActionInFlightRef.current || settingsActionInFlightRef.current) {
       return;
     }
@@ -632,11 +635,12 @@ export function App() {
 
       setUsageByProfile(usages);
       setStatus({
-        tone: failedCount > 0 ? "error" : "success",
+        tone: failedCount > 0 ? "warning" : "success",
         text:
           failedCount > 0
-            ? `用量查询完成：成功 ${successCount} 个，失败 ${failedCount} 个。`
-            : `已查询 ${successCount} 个账号的用量。`
+            ? `用量查询完成：${successCount} 个成功，${failedCount} 个失败，失败账号已在列表中标出。`
+            : `已查询 ${successCount} 个账号的用量。`,
+        autoFade: true
       });
     } catch (error) {
       setStatus({ tone: "error", text: getErrorMessage(error) });
@@ -680,9 +684,10 @@ export function App() {
       <div className="window-drag-region" aria-hidden="true" />
       <div className="mx-auto flex min-h-[calc(100vh-2.25rem)] w-full max-w-6xl flex-col px-6 pb-6 pt-5">
         <header className="app-header flex items-center justify-between gap-4 border-b pb-3.5">
-          <h1 className="flex shrink-0 items-center gap-1.5 text-xl font-semibold text-neutral-950">
+          <div className="flex shrink-0 items-center gap-1.5">
+            <h1 className="sr-only">当前工具:{toolLabels.name}</h1>
             <TargetToolSwitch selectedTool={selectedTool} disabled={isToolSwitchDisabled} onChange={selectTargetTool} />
-          </h1>
+          </div>
 
           <div className="flex items-center gap-2">
               <button
@@ -692,7 +697,7 @@ export function App() {
                 title="重新扫描账号列表"
               >
                 <RefreshCw className={isLoading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-                <span className="hidden min-[1180px]:inline">刷新列表</span>
+                <span className="hidden min-[900px]:inline">刷新列表</span>
               </button>
               <button
                 className="tool-button"
@@ -700,10 +705,10 @@ export function App() {
                 disabled={isUsageRefreshBusy || isLoading || result.profiles.length === 0}
                 title={`查询所有账号的 ${toolLabels.name} 用量`}
               >
-                <Activity className={isRefreshingAllUsage ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
-                <span className="hidden min-[1180px]:inline">查询用量</span>
+                <Gauge className={isRefreshingAllUsage ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
+                <span className="hidden min-[900px]:inline">查询用量</span>
               </button>
-              <button className="tool-button" onClick={oauthLogin.open} title={`登录一个新的 ${toolLabels.name} profile`}>
+              <button className="primary-button" onClick={oauthLogin.open} title={`登录一个新的 ${toolLabels.name} profile`}>
                 <Plus className="h-4 w-4" />
                 新增登录
               </button>
@@ -720,7 +725,7 @@ export function App() {
                 title="打开设置"
               >
                 <Settings className="h-4 w-4" />
-                <span className="hidden min-[1180px]:inline">设置</span>
+                <span className="hidden min-[900px]:inline">设置</span>
               </button>
           </div>
         </header>
@@ -772,7 +777,7 @@ export function App() {
                   nickname={profileNicknames[getProfileKey(profile)]}
                   isRefreshingUsage={refreshingUsageProfiles.has(getProfileKey(profile)) || isRefreshingAllUsage}
                   onSwitch={() => switchToProfile(profile)}
-                  onDelete={() => deleteProfile(profile)}
+                  onDelete={() => requestDeleteProfile(profile)}
                   onCopyName={() => copyProfileName(profile.name)}
                   onCopyPath={() => copyProfilePath(profile)}
                   onSetNickname={() => openProfileNicknameEditor(profile)}
@@ -834,6 +839,24 @@ export function App() {
             onChange={setNicknameDraft}
             onSave={saveProfileNickname}
             onClose={() => setNicknameEditorProfile(undefined)}
+          />
+        ) : null}
+
+        {pendingDeleteProfile ? (
+          <ConfirmDialog
+            title={
+              isGeminiTool
+                ? `删除 profile「${pendingDeleteProfile.name}」？`
+                : `删除 Antigravity 账号「${getProfileDisplayName(pendingDeleteProfile, profileNicknames)}」？`
+            }
+            bodyLines={
+              isGeminiTool
+                ? ["会把这个目录移到 Windows 回收站：", pendingDeleteProfile.profilePath]
+                : ["会删除本应用保存的切换凭据，不会影响任何 Gemini 账号目录。"]
+            }
+            confirmLabel="删除"
+            onConfirm={() => void confirmDeleteProfile()}
+            onClose={() => setPendingDeleteProfile(undefined)}
           />
         ) : null}
       </div>

@@ -16,30 +16,38 @@ export function TargetToolSwitch({
   const nextTool = tools[(currentIndex + 1) % tools.length];
 
   return (
-    <button
-      className="mode-loadout"
-      onClick={() => void onChange(nextTool)}
-      disabled={disabled}
-      aria-label={`切换到 ${TOOL_LABELS[nextTool].name}`}
-      title={`切换到 ${TOOL_LABELS[nextTool].name}`}
-    >
-      <span key={selectedTool} className="mode-loadout-track" aria-hidden="true">
-        <span className="mode-loadout-slot mode-loadout-active">
-          <span className="mode-loadout-sigil">I</span>
+    <div className="mode-loadout" role="group" aria-label={`目标工具,当前为 ${TOOL_LABELS[selectedTool].name}`}>
+      <span key={selectedTool} className="mode-loadout-track">
+        <button
+          type="button"
+          className="mode-loadout-slot mode-loadout-active"
+          aria-current="true"
+          disabled={disabled}
+          onClick={() => void onChange(selectedTool)}
+          title={`当前工具:${TOOL_LABELS[selectedTool].name}`}
+        >
+          <span className="mode-loadout-sigil" aria-hidden="true">I</span>
           <span className="mode-loadout-name">
             {TOOL_LABELS[selectedTool].shortName}
           </span>
-        </span>
-        <span className="mode-loadout-swap">
+        </button>
+        <span className="mode-loadout-swap" aria-hidden="true">
           <ArrowLeftRight className="h-[18px] w-[18px]" />
         </span>
-        <span className="mode-loadout-slot mode-loadout-secondary">
-          <span className="mode-loadout-sigil">II</span>
+        <button
+          type="button"
+          className="mode-loadout-slot mode-loadout-secondary"
+          disabled={disabled}
+          onClick={() => void onChange(nextTool)}
+          aria-label={`切换到 ${TOOL_LABELS[nextTool].name}`}
+          title={`切换到 ${TOOL_LABELS[nextTool].name}`}
+        >
+          <span className="mode-loadout-sigil" aria-hidden="true">II</span>
           <span className="mode-loadout-name">
             {TOOL_LABELS[nextTool].shortName}
           </span>
-        </span>
+        </button>
       </span>
-    </button>
+    </div>
   );
 }

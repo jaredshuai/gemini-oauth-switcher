@@ -114,7 +114,7 @@ button:focus-visible {
   color: #4b3421;
 }
 
-.mode-loadout:disabled {
+.mode-loadout-slot:disabled {
   opacity: 0.82;
 }
 
@@ -223,8 +223,8 @@ button:focus-visible {
   transition: color 160ms ease, transform 160ms ease;
 }
 
-.mode-loadout:not(:disabled):hover .mode-loadout-secondary,
-.mode-loadout:not(:disabled):hover .mode-loadout-swap {
+.mode-loadout:hover .mode-loadout-secondary:not(:disabled),
+.mode-loadout:hover .mode-loadout-swap {
   color: rgba(76, 49, 25, 0.82);
 }
 
@@ -312,6 +312,7 @@ button:focus-visible {
 
 .tool-button:not(:disabled):active,
 .primary-button:not(:disabled):active,
+.danger-button:not(:disabled):active,
 .switch-button:not(:disabled):active,
 .danger-icon-button:not(:disabled):active,
 .copy-icon-button:not(:disabled):active,
@@ -320,6 +321,7 @@ button:focus-visible {
 }
 
 .primary-button,
+.danger-button,
 .switch-button,
 .danger-icon-button {
   display: inline-flex;
@@ -346,6 +348,18 @@ button:focus-visible {
 
 .primary-button:not(:disabled):hover {
   background: rgb(64 64 64);
+}
+
+.danger-button {
+  border: 1px solid rgb(153 27 27);
+  background: rgb(185 28 28);
+  color: white;
+  padding: 0.5rem 0.9rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 -2px 0 rgba(0, 0, 0, 0.22);
+}
+
+.danger-button:not(:disabled):hover {
+  background: rgb(153 27 27);
 }
 
 .switch-button {
